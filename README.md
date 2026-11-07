@@ -49,7 +49,23 @@ Compose giới hạn runtime ở 768 MB và 0.5 CPU; đây là cấu hình giớ
 
 ### Botkeep Cloud
 
-Khi Botkeep có capacity: dùng Node 22 hoặc Dockerfile, cổng `$PORT` (mặc định `7000`), build/start như bảng trên, health `/health`, domain HTTPS. Nếu filesystem không bền vững, chỉ chạy với `STORAGE_MODE=ephemeral` để thử. Chỉ chọn `persistent` khi đã xác nhận và gắn được volume/disk vào đúng đường dẫn database. Repository này không tạo server, domain hay tài khoản Botkeep tự động.
+Tại trang Create, chọn ứng dụng **Node.js 22**, nguồn GitHub, repository này, branch `main`, project root là gốc repository (`.`). Repo là private nên cần cài/cấp quyền cho **Botkeep GitHub App**; quyền của ChatGPT không thay thế quyền của Botkeep.
+
+Nếu có các ô build/start riêng: build bằng `npm ci --include=dev && npm run build`, start bằng `npm start`. Nếu chỉ có một ô Startup command, dùng:
+
+```bash
+npm ci --include=dev && npm run build && npm start
+```
+
+Cách một lệnh sẽ cài và build lại mỗi lần khởi động. Nếu gói cho phép, cấp 1024 MB RAM, 0.5 vCore và 1024 MB storage để bắt đầu; mức này chưa được benchmark trên Botkeep. Không cần tạo database server riêng vì bản này dùng SQLite.
+
+Ứng dụng tự nhận cổng `SERVER_PORT` được Botkeep cấp (ưu tiên hơn `PORT`) và bind `0.0.0.0`. Không ép cổng `7000` nếu panel đã cấp cổng khác. Trong Environment: đặt `NODE_ENV=production`, `HOST=0.0.0.0`, `DATABASE_URL=file:../data/feed.db` và `STORAGE_MODE=ephemeral` để chạy thử trước khi xác nhận volume thật.
+
+Trong **Domains**, cấu hình alias hoặc domain của bạn với HTTPS tới cổng được cấp. Sau đó đặt `PUBLIC_BASE_URL` thành origin HTTPS thực tế (không có `/configure` hay `/manifest.json`) rồi restart. Kiểm tra `/health`, mở `/configure` và tạo profile để cài vào Stremio.
+
+Chỉ đổi sang `STORAGE_MODE=persistent` sau khi xác nhận đường dẫn volume bền vững; trỏ `DATABASE_URL=file:/<duong-dan-volume-thuc-te>/feed.db` tới đúng volume đó. Chạy một instance. Nếu đổi đường dẫn, cần chuyển database riêng nếu muốn giữ profile cũ. Không thể deploy khi Botkeep báo hết capacity. Repository này không tự tạo server, domain hay tài khoản Botkeep.
+
+Xem hướng dẫn chính thức: [GitHub import](https://botkeep.cloud/docs/github), [HTTP port và Domains](https://botkeep.cloud/docs/hosting).
 
 ## Chạy local
 
