@@ -1,0 +1,15 @@
+services:
+  feed:
+    build: .
+    ports:
+      - "7000:7000"
+    environment:
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:7000}
+      REGISTRATION_KEY: ${REGISTRATION_KEY:-}
+    volumes:
+      - feed-data:/app/data
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 0.5
+volumes:
+  feed-data:

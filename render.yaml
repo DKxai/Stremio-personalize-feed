@@ -1,0 +1,19 @@
+# Free demonstration only. Profiles on this ephemeral filesystem do not survive restarts.
+# For durable SQLite profiles, use Docker + a volume, or attach a paid persistent disk.
+services:
+  - type: web
+    name: stremio-personalized-feed
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        value: file:../data/feed.db
+      - key: STORAGE_MODE
+        value: ephemeral
