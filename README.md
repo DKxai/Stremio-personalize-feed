@@ -49,15 +49,15 @@ Compose giới hạn runtime ở 768 MB và 0.5 CPU; đây là cấu hình giớ
 
 ### Botkeep Cloud
 
-Tại trang Create, chọn ứng dụng **Node.js 22**, nguồn GitHub, repository này, branch `main`, project root là gốc repository (`.`). Repo là private nên cần cài/cấp quyền cho **Botkeep GitHub App**; quyền của ChatGPT không thay thế quyền của Botkeep.
+Tại trang Create, chọn ứng dụng **Node.js 22**, nguồn GitHub, repository này, branch `main`, project root là gốc repository (`.`). Repository public có thể nhập bằng URL. Với repository private, cần cài/cấp quyền cho **Botkeep GitHub App**; quyền của ChatGPT không thay thế quyền của Botkeep.
 
-Nếu có các ô build/start riêng: build bằng `npm ci --include=dev && npm run build`, start bằng `npm start`. Nếu chỉ có một ô Startup command, dùng:
+Botkeep đã được kiểm tra thực tế với bước cài dependencies do nền tảng quản lý trước khi chạy startup command. Trên cấu hình này, dùng:
 
 ```bash
-npm ci --include=dev && npm run build && npm start
+npm run build && npm start
 ```
 
-Cách một lệnh sẽ cài và build lại mỗi lần khởi động. Nếu gói cho phép, cấp 1024 MB RAM, 0.5 vCore và 1024 MB storage để bắt đầu; mức này chưa được benchmark trên Botkeep. Không cần tạo database server riêng vì bản này dùng SQLite.
+Giữ devDependencies trong bước cài vì TypeScript cần cho build. Nếu một hosting khác không tự cài dependencies, chạy `npm ci --include=dev` trong bước build trước. Tránh cài lại lần thứ hai trong startup khi Botkeep đã hoàn thành locked install. Nếu gói cho phép, cấp 1024 MB RAM, 0.5 vCore và 1024 MB storage để bắt đầu; mức này chưa được benchmark tải trên Botkeep. Không cần tạo database server riêng vì bản này dùng SQLite.
 
 Ứng dụng tự nhận cổng `SERVER_PORT` được Botkeep cấp (ưu tiên hơn `PORT`) và bind `0.0.0.0`. Không ép cổng `7000` nếu panel đã cấp cổng khác. Trong Environment: đặt `NODE_ENV=production`, `HOST=0.0.0.0`, `DATABASE_URL=file:../data/feed.db` và `STORAGE_MODE=ephemeral` để chạy thử trước khi xác nhận volume thật.
 
@@ -130,6 +130,8 @@ npm run check
 Gồm TypeScript check, integration tests với SQLite tạm thật, và build. Tests xác nhận 12 catalog, phân trang không lặp, profile khác nhau có ranking khác nhau, tín hiệu tương tác làm mới cache, xác thực đầu vào/token, và profile còn nguyên khi đóng/mở lại database. Metadata tests dùng fetch giả để chạy offline. GitHub Actions chạy cùng lệnh bằng Node 22.
 
 Docker image và cài Add-on thực tế trên Android/Desktop cần xác nhận riêng trong môi trường đích; HTTP tests không thay thế kiểm thử thiết bị.
+
+Các `overrides` trong package.json khóa bản vá của `deepmerge-ts`, `path-to-regexp` và `tmp` trong cây dependencies của Prisma/SDK. Chúng giữ nguyên phiên bản API chính của Prisma và Stremio SDK; hãy chạy `npm run check` và `npm audit` khi thay đổi lockfile. Các luồng migration, catalog và profile được kiểm tra bằng SQLite thật.
 
 ## Sao lưu SQLite
 
