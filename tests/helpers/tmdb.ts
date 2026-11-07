@@ -12,6 +12,8 @@ export function mockTmdb(requests: URL[] = [], clock = now) {
     if (path.startsWith('watch/providers/')) result={results:[{provider_id:8,provider_name:'Netflix'},{provider_id:337,provider_name:'Disney Plus'},{provider_id:9999,provider_name:'HBO Max'}]};
     else if (/^(trending|discover)/.test(path)) result={results:Array.from({length:20},(_,i)=>({id:i+1,adult:i===19}))};
     else if (path.startsWith('find/')) { const id=Number(path.split('/')[1]?.replace('tt',''))-1000000;result={movie_results:id>0 && id%2?[{id}]:[],tv_results:id>0 && id%2===0?[{id}]:[]}; }
+    else if (path==='search/movie') result={results:[{id:1},{id:3}]};
+    else if (path==='search/tv') result={results:[{id:2},{id:4}]};
     else if (path==='search/multi') result={results:[{id:1,media_type:'movie'},{id:2,media_type:'tv'},{id:88,media_type:'person'}]};
     else {
       const id=Number(path.split('/')[1]);

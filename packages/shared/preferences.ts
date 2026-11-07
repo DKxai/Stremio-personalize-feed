@@ -13,9 +13,9 @@ export const PLATFORMS = [
 export const REGIONS = ['US', 'VN', 'KR', 'JP', 'TW', 'HK', 'SG', 'GB', 'AU', 'CA'] as const;
 export const ORIGINS = ['KR', 'CN', 'TW', 'HK', 'JP', 'US'] as const;
 export const GENRES = ['Action', 'Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Family', 'Fantasy', 'History', 'Horror', 'Music', 'Mystery', 'Romance', 'Sci-Fi', 'Thriller', 'War', 'Western'] as const;
-export interface FeedPreferences { region: string; platforms: string[]; preferredOrigins: string[]; preferAnime: boolean }
+export interface FeedPreferences { region: string; platforms: string[]; preferredOrigins: string[]; preferAnime: boolean; syncLibrary: boolean; syncPlayback: boolean }
 export const DEFAULT_FEED: FeedPreferences = {
-  region: 'US', platforms: PLATFORMS.map(p => p.id), preferredOrigins: ['KR', 'CN', 'TW', 'HK', 'JP'], preferAnime: true,
+  region: 'US', platforms: PLATFORMS.map(p => p.id), preferredOrigins: ['KR', 'CN', 'TW', 'HK', 'JP'], preferAnime: true, syncLibrary: true, syncPlayback: false,
 };
 export function feedPreferences(value: Partial<FeedPreferences> = {}): FeedPreferences {
   return {
@@ -23,5 +23,7 @@ export function feedPreferences(value: Partial<FeedPreferences> = {}): FeedPrefe
     platforms: value.platforms ?? DEFAULT_FEED.platforms,
     preferredOrigins: value.preferredOrigins ?? DEFAULT_FEED.preferredOrigins,
     preferAnime: value.preferAnime ?? DEFAULT_FEED.preferAnime,
+    syncLibrary: value.syncLibrary ?? DEFAULT_FEED.syncLibrary,
+    syncPlayback: value.syncPlayback ?? DEFAULT_FEED.syncPlayback,
   };
 }

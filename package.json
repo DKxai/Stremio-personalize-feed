@@ -14,7 +14,7 @@
     "typescript": "5.9.3"
   },
   "name": "stremio-personalized-feed",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Personalized Stremio feed with weekly trends, fresh releases, Korean, Chinese, Japanese and anime catalogs",

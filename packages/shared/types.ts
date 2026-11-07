@@ -24,6 +24,7 @@ export interface Title {
   providerLink?: string;
   weeklyTrend?: number;
   source?: 'tmdb' | 'fixtures';
+  activityNote?: string;
 }
 
 export interface Profile extends Partial<FeedPreferences> {
@@ -34,4 +35,10 @@ export interface Profile extends Partial<FeedPreferences> {
   likes: string[];
   dislikes: string[];
   watched: string[];
+  saved?: string[];
+  started?: string[];
+  episodeCounts?: Record<string, number>;
+  itemTypes?: Record<string, MediaType>;
+  lastLibraryEventAt?: string | null;
+  lastPlayerEventAt?: string | null;
 }

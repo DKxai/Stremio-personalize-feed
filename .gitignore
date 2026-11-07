@@ -9,3 +9,6 @@ data/
 *.log
 coverage/
 .DS_Store
+
+.deploy/
+release-*.mjs

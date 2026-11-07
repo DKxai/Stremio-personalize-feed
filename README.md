@@ -2,7 +2,7 @@
 
 Movie + Series + Anime, chạy bằng **Node.js 22, TypeScript, Fastify, Stremio Add-on SDK và Prisma / SQLite**. Không host phim, không cung cấp stream. Các Add-on phát nội dung hiện có vẫn dùng IMDb ID và episode ID từ Cinemeta.
 
-Bản 0.3 bổ sung catalog phim Nhật / J-Drama và ưu tiên Nhật trong profile mới. Bản 0.2 đã thay thư viện mẫu làm nguồn recommendation bằng **TMDB trực tiếp**, thêm xu hướng tuần, tác phẩm mới trong 90 ngày, phim Hàn, Trung và anime. Cần TMDB API Read Access Token của chủ server. **Thiếu token sẽ hiện trạng thái chưa cấu hình và trả 503 cho feed trực tiếp; không âm thầm dùng phim cũ làm dữ liệu mới.** `DEMO_MODE=true` chỉ dành cho demo offline, với các mục xu hướng/mới để trống.
+Bản **0.4** bổ sung Đã xem / Thư viện riêng, callback Stremio library/player, tìm kiếm Movie/Series và lọc Genre trong Discover. Bản 0.3 bổ sung catalog phim Nhật / J-Drama và ưu tiên Nhật trong profile mới. Bản 0.2 đã thay thư viện mẫu làm nguồn recommendation bằng **TMDB trực tiếp**, thêm xu hướng tuần, tác phẩm mới trong 90 ngày, phim Hàn, Trung và anime. Cần TMDB API Read Access Token của chủ server. **Thiếu token sẽ hiện trạng thái chưa cấu hình và trả 503 cho feed trực tiếp; không âm thầm dùng phim cũ làm dữ liệu mới.** `DEMO_MODE=true` chỉ dành cho demo offline, với các mục xu hướng/mới để trống.
 
 ## Bật dữ liệu thật
 
@@ -16,7 +16,7 @@ Mặc định dùng **US** để gộp thư viện các dịch vụ quốc tế,
 
 ## Catalog
 
-14 nhóm × hai loại `movie` / `series` = **28 khai báo trong manifest**. Stremio yêu cầu mỗi catalog có một loại, nên Movie và Series có các hàng riêng.
+16 nhóm × hai loại `movie` / `series` = **32 hàng Home/Discover**, cộng 2 catalog chỉ dành cho tìm kiếm = **34 khai báo trong manifest**. Stremio yêu cầu mỗi catalog có một loại, nên Movie và Series có các hàng riêng.
 
 | ID | Nội dung | Quy tắc |
 | --- | --- | --- |
@@ -30,6 +30,9 @@ Mặc định dùng **US** để gộp thư viện các dịch vụ quốc tế,
 | `pf-japanese` | Phim Nhật dành cho bạn | Điện ảnh và J-Drama từ JP; anime có hàng riêng |
 | `pf-anime` | Thế giới Anime | Animation từ Nhật Bản |
 | `pf-anime-new` | Anime mới · 90 ngày qua | Anime có tuổi tác phẩm 0–89 ngày |
+| `pf-saved` | Thư viện & Yêu thích | Saved từ Stremio, favorites và likes; không trộn với dislike |
+| `pf-watched` | Danh sách Đã xem | Tác phẩm đã xem và series đã xem một số tập, ghi rõ số tập |
+| `pf-search` | Tìm kiếm | Movie và Series riêng; TMDB relevance, tên đa ngôn ngữ hoặc IMDb ID, gồm cả phim đã xem |
 | `pf-because` | Vì bạn đã xem | Tương đồng với manual watched/favorites/likes |
 | `pf-genres` | Thể loại yêu thích | Phù hợp genres đã chọn |
 | `pf-gems` | Đáng xem, ít người biết | Tương đồng, chất lượng, độ phổ biến thấp |
@@ -49,7 +52,7 @@ Mặc định dùng **US** để gộp thư viện các dịch vụ quốc tế,
 
 Candidate generator tìm Movie/TV, genres, quốc gia, anime và dữ liệu tuần. Các pool được xen kẽ để phim Hàn, Trung, anime không bị loại hết bởi giới hạn request. Tối đa 40 TMDB title candidates cho một catalog; đây không phải toàn bộ thư viện phim. Titles thiếu IMDb mapping bị bỏ để giữ tương thích streaming Add-on.
 
-Ranking ổn định, có chiến lược riêng theo catalog: Jaccard genres/cast/directors/keywords, positive/negative affinity, độ mới, quốc gia yêu thích, anime, Bayesian rating và diversity penalty. Favorites, likes, watched và dislikes được loại khỏi danh sách đề xuất. Tín hiệu dislike cũng làm giảm độ tương đồng. Không dùng random.
+Ranking ổn định, có chiến lược riêng theo catalog: Jaccard genres/cast/directors/keywords, positive/negative affinity, độ mới, quốc gia yêu thích, anime, Bayesian rating và diversity penalty. Favorites, likes, saved, watched/started và dislikes được loại khỏi danh sách đề xuất; vẫn tìm được trong Search và các danh sách riêng. Watched là tín hiệu tương đồng yếu hơn Like, saved yếu hơn watched. Tín hiệu dislike cũng làm giảm độ tương đồng. Không dùng random.
 
 Hybrid item co-occurrence có trọng số nhỏ trong Recommended/Top/Gems: chỉ dùng ứng viên được **ít nhất ba profile khác nhau** có sở thích giao nhau cùng thích. Dữ liệu ít thì quay về content-based. Đây là baseline cộng tác, chưa phải mô hình học máy đã được đánh giá độ chính xác bằng hành vi thật.
 
@@ -111,6 +114,18 @@ Có sẵn `render.yaml` để thử bằng Render Blueprint. Cần thêm TMDB to
 
 ## Profile và API
 
+### Đồng bộ thư viện và Đã xem trong Stremio
+
+[Protocol hiện tại](https://github.com/Stremio/stremio-addon-sdk/blob/master/docs/protocol.md) có `library` và `player` resources. [Core-web 0.64.0](https://github.com/Stremio/stremio-core/releases/tag/stremio-core-web-v0.64.0) bổ sung gửi các sự kiện này. Client cũ hoặc dùng core chưa hỗ trợ có thể không gửi. Cần **cài lại manifest của cùng profile**, đồng ý quyền hoạt động xem mà Stremio hiển thị, rồi thử đánh dấu một tác phẩm Đã xem. Trang quản lý hiển thị thời điểm nhận sự kiện thư viện để xác nhận client thật.
+
+- `libraryAdd` / `libraryRemove`: thêm/bỏ **Đã lưu**. Không suy diễn thành Like; protocol không có callback thumbs-up riêng.
+- `watched` / `unwatched`: thêm/bỏ Đã xem. Nếu có `videoId`, lưu từng tập; một tập không đánh dấu cả series hoàn thành. Batches tối đa 100 video đúng IMDb cha; lặp callback không nhân bản dữ liệu.
+- `syncLibrary` mặc định bật. Có thể tắt tại trang quản lý; handler sẽ không ghi thêm. Đổi cài đặt cần cài lại manifest để Stremio nhận resources mới.
+- `syncPlayback` mặc định **tắt**. Nếu bật, chỉ coi hoàn thành khi nhận `stop`, thời lượng ít nhất 5 phút và vị trí đạt ít nhất 85%. Đây là tín hiệu vị trí dừng, không chứng minh đã xem toàn bộ. Không lưu tiến độ, stream URL hoặc từng sự kiện start/pause.
+- Callback chỉ nhận **thay đổi mới**, không cung cấp API tải toàn bộ lịch sử trước khi cài. Có thể tìm phim ở trang cấu hình rồi đánh dấu Đã xem, hoặc chọn tối đa 50 tác phẩm khi tạo profile. Không cần mật khẩu Stremio.
+- Like/Dislike và Đã xem độc lập: thích rồi đánh dấu xem vẫn giữ cả hai; bỏ xem không xóa Like. Saved cũng độc lập. Dữ liệu tối đa 2.000 tác phẩm, 10.000 video hoàn thành và 500 ratings gần nhất/profile để giới hạn tài nguyên.
+- Home có các hàng Nhật, Hàn, Trung, Anime riêng cho Movie/Series; hàng trống có thể bị client ẩn. Discover chọn bộ sưu tập rồi Genre. Search có đúng một catalog cho mỗi loại, tránh fanout cùng một truy vấn qua 16 hàng.
+
 Token riêng là capability của profile, không phải tài khoản Stremio. Chỉ hash được lưu trong database. Manifest URL chứa token; giữ riêng để cài lại hoặc chỉnh sở thích. Có thể chỉnh qua `/<token>/configure`; trang lưu token trong session của tab. Chưa có account recovery hoặc đồng bộ tài khoản Stremio.
 
 | Endpoint | Công dụng |
@@ -122,15 +137,15 @@ Token riêng là capability của profile, không phải tài khoản Stremio. C
 | `GET /api/profile` | Profile hiện tại; Bearer token |
 | `GET /api/favorites` | Metadata favorites đã lưu; Bearer token |
 | `PUT /api/profile` | Thay genres/favorites, tùy chọn cập nhật cấu hình feed; Bearer token |
-| `POST /api/interactions` | `{mediaId:"tt...",kind:"like"/"dislike"/"watched"/"clear"}`; Bearer token |
+| `POST /api/interactions` | `{mediaId:"tt...",kind:"like"/"dislike"/"watched"/"unwatched"/"unlike"/"undislike"/"save"/"unsave"/"clear"}`; Bearer token |
 | `GET /<token>/manifest.json` | Manifest đã cấu hình |
 | `GET /<token>/catalog/series/pf-anime-new.json` | Anime series mới |
-| `GET /<token>/catalog/movie/pf-recommended/skip=20.json` | Trang kế tiếp, tối đa 20 kết quả / trang |
+| `GET /<token>/catalog/movie/pf-recommended/skip=100.json` | Trang kế tiếp, tối đa 100 kết quả / trang (chuẩn Stremio); candidate pool tối đa 40 cho recommendation, search xét tối đa 100 ứng viên |
 | `GET /<token>/meta/series/<imdb-id>.json` | Chi tiết từ Cinemeta, giữ episode IDs thật |
 
-Profile body bắt buộc `genres: string[]`, `favorites: string[]` (tối đa 10). Tùy chọn: `region`, `platforms`, `preferredOrigins`, `preferAnime`. Khi PUT bỏ các tùy chọn này thì giữ giá trị hiện tại. Có thể yêu cầu `registrationKey` khi tạo nếu server bật `REGISTRATION_KEY`. IMDb IDs không còn bị khóa vào thư viện mẫu; phải resolve được qua metadata.
+Profile body bắt buộc `genres: string[]`, `favorites: string[]` (tối đa 10). Tùy chọn: `region`, `platforms`, `preferredOrigins`, `preferAnime`, `syncLibrary`, `syncPlayback`. POST hỗ trợ `watched: string[]` tối đa 50; PUT không thay toàn bộ watched để tránh đè callback, dùng interactions từng tác phẩm. Khi PUT bỏ các tùy chọn này thì giữ giá trị hiện tại. Có thể yêu cầu `registrationKey` khi tạo nếu server bật `REGISTRATION_KEY`. IMDb IDs không còn bị khóa vào thư viện mẫu; phải resolve được qua metadata.
 
-Thao tác interaction mới thay trạng thái trước của cùng title. Giữ tối đa 500 interaction gần nhất / profile. Stremio Add-on Protocol **không tự gửi watch history hay sự kiện xem**; Like/Dislike/Đã xem trên trang quản lý là tín hiệu chủ động. Tích hợp lịch sử từ dịch vụ khác cần OAuth/đồng ý riêng và chưa có trong bản này.
+Like và Dislike loại trừ nhau, nhưng độc lập với watched/saved. `clear` xóa rating và watched cho tác phẩm đó (không xóa saved); dùng `unlike`/`undislike`/`unwatched` khi chỉ muốn bỏ một tín hiệu. Các endpoint `/<token>/library/<type>/<imdb>/<extra>.json` và `/<token>/player/<type>/<videoId>/<extra>.json` nhận callback theo protocol, không cache, không tạo HEAD route để tránh HEAD làm thay đổi dữ liệu. Callback được xác thực bằng token riêng của profile.
 
 Metadata chi tiết ưu tiên Cinemeta, giữ ID tập phim thật. Khi upstream lỗi, movie có fallback cơ bản; series trả `meta:null` thay vì tạo tập giả. Hãy giữ Cinemeta cài trong Stremio. Poster TMDB có fallback Metahub. Attribution TMDB / JustWatch xuất hiện trên trang cấu hình và dữ liệu nền tảng trong preview.
 
@@ -158,6 +173,6 @@ GitHub CI dùng Node 22. Tests chạy offline với fetch mock có kiểm soát,
 
 Live smoke cần token thật: mở catalog tuần/mới/anime, xác nhận poster, ID, mốc ngày và thư viện khu vực. Cài thực tế trên Stremio Android/Desktop và benchmark tải vẫn phải làm trong môi trường đích. Tests offline không chứng minh chất lượng recommendation ngoài thực tế.
 
-Đã có nền tảng Phase 2–4 và baseline hybrid/hiệu năng Phase 6. Phase 5 còn phụ thuộc hạ tầng thật, cấu hình token, kiểm thử thiết bị, backup ngoài server và thử tải. Chưa có collaborative model train offline, A/B evaluation hay watch-history integration; không đánh dấu toàn bộ roadmap hoàn tất.
+Đã có nền tảng Phase 2–4 và baseline hybrid/hiệu năng Phase 6. Phase 5 còn phụ thuộc hạ tầng thật, cấu hình token, kiểm thử thiết bị, backup ngoài server và thử tải. Chưa có collaborative model train offline, A/B evaluation hay backfill toàn bộ watch history; không đánh dấu toàn bộ roadmap hoàn tất.
 
 Tài liệu nguồn: [TMDB discover](https://developer.themoviedb.org/reference/discover-movie), [weekly trending](https://developer.themoviedb.org/reference/trending-movies), [JustWatch attribution](https://developer.themoviedb.org/reference/tv-series-watch-providers), [SQLite VACUUM INTO](https://www.sqlite.org/lang_vacuum.html), [Stremio SDK](https://github.com/Stremio/stremio-addon-sdk).

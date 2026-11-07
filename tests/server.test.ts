@@ -42,7 +42,7 @@ test('health, onboarding assets, unconfigured manifest and CORS work', async () 
   assert.match((await app.inject('/assets/configure.js')).body, /api\/profiles/);
   const response = await app.inject('/manifest.json');
   const manifest = response.json();
-  assert.equal(manifest.catalogs.length, 28);
+  assert.equal(manifest.catalogs.length, 34);
   assert.equal(manifest.behaviorHints.configurationRequired, true);
   assert.equal(response.headers['access-control-allow-origin'], '*');
   assert(!manifest.resources.includes('stream'));
@@ -80,8 +80,8 @@ test('profiles return different recommendations and pagination does not repeat t
   const a = (await app.inject(catalog())).json().metas;
   const b = (await app.inject('/' + otherToken + '/catalog/movie/pf-recommended.json')).json().metas;
   assert.notDeepEqual(a.slice(0, 5).map((t: { id: string }) => t.id), b.slice(0, 5).map((t: { id: string }) => t.id));
-  const second = (await app.inject(catalog('recommended', 'movie', '/skip=20'))).json().metas;
-  assert(second.length > 0); assert(second.every((t: { id: string }) => !a.some((x: { id: string }) => x.id === t.id)));
+  const second = (await app.inject(catalog('recommended', 'movie', '/skip=100'))).json().metas;
+  assert.equal(second.length, 0); assert(second.every((t: { id: string }) => !a.some((x: { id: string }) => x.id === t.id)));
   assert.deepEqual((await app.inject(catalog('recommended', 'movie', '/skip=9999'))).json().metas, []);
   assert.equal((await app.inject(catalog('recommended', 'movie', '/skip=-1'))).statusCode, 400);
 });

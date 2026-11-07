@@ -28,17 +28,21 @@ export class RecommendationEngine {
     if (cached) return cached;
 
     const positiveIds = new Set([...profile.favorites, ...profile.likes]);
-    const seedIds = new Set([...positiveIds, ...profile.watched]);
+    const seedIds = new Set([...positiveIds, ...profile.watched, ...(profile.started ?? []), ...(profile.saved ?? [])]);
     const positives = seeds.filter(t => positiveIds.has(t.id));
-    // Manual watched signals are valid only for this row; favorites are a cold-start fallback.
-    const becauseSeeds = seeds.filter(t => seedIds.has(t.id));
+    // Watched and library saves are useful but weaker than an explicit like.
+    const viewing = seeds.filter(t => !profile.dislikes.includes(t.id) && [...profile.watched, ...(profile.started ?? [])].includes(t.id));
+    const saved = seeds.filter(t => !profile.dislikes.includes(t.id) && profile.saved?.includes(t.id));
+    const becauseSeeds = seeds.filter(t => seedIds.has(t.id) && !profile.dislikes.includes(t.id));
     const blocked = new Set([...seedIds, ...profile.dislikes]);
     const negatives = seeds.filter(t => profile.dislikes.includes(t.id));
     const affinity = (t: Title) => {
       const genre = overlap(profile.genres, t.genres);
       const content = Math.max(0, ...positives.map(p => similarity(t, p)));
       const dislike = Math.max(0, ...negatives.map(n => similarity(t, n)));
-      return Math.max(0, 0.6 * genre + 0.4 * content - 0.2 * dislike);
+      const seenMatch = Math.max(0, ...viewing.map(p => similarity(t, p)));
+      const savedMatch = Math.max(0, ...saved.map(p => similarity(t, p)));
+      return Math.max(0, 0.6 * genre + 0.4 * content + 0.18 * seenMatch + 0.1 * savedMatch - 0.35 * dislike);
     };
 
     const prefs = feedPreferences(profile);

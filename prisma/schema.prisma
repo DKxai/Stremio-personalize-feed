@@ -15,6 +15,10 @@ model User {
   preferences  Preference?
   favorites    Favorite[]
   interactions Interaction[]
+  library      LibraryEntry[]
+  watchedVideos WatchedVideo[]
+  lastLibraryEventAt DateTime?
+  lastPlayerEventAt DateTime?
 }
 
 model Preference {
@@ -59,4 +63,28 @@ model MovieMetadata {
   updatedAt DateTime @updatedAt
 
   @@index([imdbId, type])
+}
+
+model LibraryEntry {
+  userId    String
+  mediaId   String
+  type      String
+  saved     Boolean  @default(false)
+  watched   Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, mediaId])
+  @@index([userId, updatedAt])
+}
+
+model WatchedVideo {
+  userId    String
+  mediaId   String
+  videoId   String
+  updatedAt DateTime @updatedAt
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, videoId])
+  @@index([userId, mediaId])
 }

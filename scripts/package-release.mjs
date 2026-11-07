@@ -1,0 +1,21 @@
+import { execFileSync } from 'node:child_process';
+import { readFileSync, writeFileSync, mkdirSync, lstatSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { createHash } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
+import { validateRelease } from './apply-release.mjs';
+const output = process.argv[2];
+if (!output || !output.startsWith('/')) throw new Error('Pass an absolute output path outside the repository');
+const root=process.cwd(), target=resolve(output);
+if(target.startsWith(root+'/')) throw new Error('Release artifact must be outside the repository');
+const paths=execFileSync('git',['ls-files','-z'],{encoding:'utf8'}).split('\0').filter(Boolean);
+const files=paths.map(path=>{
+  if(!lstatSync(path).isFile()) throw new Error('Only regular source files are allowed');
+  const content=readFileSync(path,'utf8');return {path,content,sha256:createHash('sha256').update(content).digest('hex')};
+});
+const tree=execFileSync('git',['rev-parse','HEAD^{tree}'],{encoding:'utf8'}).trim();
+const release=validateRelease({tree,files});
+const payload=gzipSync(Buffer.from(JSON.stringify(release))).toString('base64');
+const digest=createHash('sha256').update(payload).digest('hex');
+const source="import { gunzipSync } from 'node:zlib';\n"+readFileSync('scripts/apply-release.mjs','utf8')+`\nconst payload='${payload}';\nif(hash(payload)!=='${digest}') throw new Error('Payload checksum failed');\nawait applyRelease(JSON.parse(gunzipSync(Buffer.from(payload,'base64')).toString('utf8')));\n`;
+mkdirSync(dirname(target),{recursive:true});writeFileSync(target,source,{mode:0o600});console.log('Packaged',files.length,'public source files for tree',tree,'bytes',Buffer.byteLength(source));

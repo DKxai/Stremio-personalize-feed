@@ -31,9 +31,12 @@ test('migration upgrades a populated Phase 1 database and backup restores profil
     await db.$executeRawUnsafe('INSERT INTO "User" (id,tokenHash,version) VALUES (?,?,?)','legacy-user','hash',7);
     await db.$executeRawUnsafe('INSERT INTO "Preference" (userId,genres) VALUES (?,?)','legacy-user','["Drama"]');
     await db.$executeRawUnsafe('INSERT INTO "Favorite" (userId,mediaId) VALUES (?,?)','legacy-user','tt0816692');
+    await db.$executeRawUnsafe('INSERT INTO "Interaction" (userId,mediaId,kind,updatedAt) VALUES (?,?,?,CURRENT_TIMESTAMP)','legacy-user','tt0108778','watched');
     run(['node_modules/prisma/build/index.js','migrate','deploy'],{DATABASE_URL:databaseUrl});
     const legacy=await db.user.findUniqueOrThrow({where:{id:'legacy-user'},include:{preferences:true,favorites:true}});
     assert.equal(legacy.version,7);assert.equal(legacy.favorites[0]?.mediaId,'tt0816692');assert.equal(legacy.preferences?.feed,'{}');
+    const migratedWatched=await db.libraryEntry.findUniqueOrThrow({where:{userId_mediaId:{userId:'legacy-user',mediaId:'tt0108778'}}});assert.equal(migratedWatched.watched,true);assert.equal(migratedWatched.type,'series');
+    assert.equal(await db.interaction.count({where:{userId:'legacy-user',kind:'watched'}}),0);
     const profiles=new ProfileService(db);
     const created=await profiles.create(['Animation'],[],feedPreferences({region:'VN',platforms:['netflix']}));
     let store=new MetadataStore(db);
