@@ -118,6 +118,7 @@ export class LiveLibrary implements LibrarySource {
     }
     if (catalog === 'korean') common.with_origin_country = 'KR';
     if (catalog === 'chinese') common.with_origin_country = 'CN|TW|HK';
+    if (catalog === 'japanese') { common.with_origin_country = 'JP'; common.without_genres = [common.without_genres, '16'].filter(Boolean).join(','); }
     if (catalog.startsWith('anime')) { common.with_genres = 16; common.with_origin_country = 'JP'; }
     if (catalog === 'genres' && profile.genres.length) common.with_genres = profile.genres.map(g => type === 'movie' ? genreIds[g] : tvGenres(g)).filter(Boolean).join('|');
     if (catalog === 'gems') { common['vote_count.gte'] = 20; common['vote_average.gte'] = 6; }
@@ -128,7 +129,8 @@ export class LiveLibrary implements LibrarySource {
     } else {
       requests.push(this.client.get(`discover/${media}`, common), this.client.get(`discover/${media}`, { ...common, page: 2 }));
       if (['recommended', 'because', 'top', 'gems'].includes(catalog)) {
-        requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: 'KR|CN|TW|HK', page: 1 }));
+        requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: 'KR|CN|TW|HK|JP', page: 1 }));
+        requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: 'JP', without_genres: [common.without_genres, '16'].filter(Boolean).join(','), page: 1 }));
         const preferredGenres = profile.genres.map(g => type === 'movie' ? genreIds[g] : tvGenres(g)).filter(Boolean).join('|');
         if (preferredGenres) requests.push(this.client.get(`discover/${media}`, { ...common, with_genres: preferredGenres, page: 1 }));
         requests.push(this.client.get(`discover/${media}`, { ...common, with_genres: 16, with_origin_country: 'JP', page: 1 }));
@@ -147,6 +149,7 @@ export class LiveLibrary implements LibrarySource {
       .filter(t => !platformRow || t.providers?.some(name => providerMatches(name, prefs.platforms)))
       .filter(t => catalog !== 'korean' || countryMatch(t, ['KR']))
       .filter(t => catalog !== 'chinese' || countryMatch(t, ['CN', 'TW', 'HK']))
+      .filter(t => catalog !== 'japanese' || (countryMatch(t, ['JP']) && !t.genres.includes('Animation')))
       .filter(t => !catalog.startsWith('anime') || t.isAnime);
     return {
       titles: filtered.map(t => catalog === 'trending' ? { ...t, weeklyTrend: 1 - ids.indexOf(t.tmdbId!) / Math.max(1, ids.length) } : t),

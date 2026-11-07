@@ -15,7 +15,7 @@ export const ORIGINS = ['KR', 'CN', 'TW', 'HK', 'JP', 'US'] as const;
 export const GENRES = ['Action', 'Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Family', 'Fantasy', 'History', 'Horror', 'Music', 'Mystery', 'Romance', 'Sci-Fi', 'Thriller', 'War', 'Western'] as const;
 export interface FeedPreferences { region: string; platforms: string[]; preferredOrigins: string[]; preferAnime: boolean }
 export const DEFAULT_FEED: FeedPreferences = {
-  region: 'US', platforms: PLATFORMS.map(p => p.id), preferredOrigins: ['KR', 'CN', 'TW', 'HK'], preferAnime: true,
+  region: 'US', platforms: PLATFORMS.map(p => p.id), preferredOrigins: ['KR', 'CN', 'TW', 'HK', 'JP'], preferAnime: true,
 };
 export function feedPreferences(value: Partial<FeedPreferences> = {}): FeedPreferences {
   return {

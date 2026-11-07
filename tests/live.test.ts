@@ -42,13 +42,14 @@ test('live feeds enforce real date, country, anime and subscription availability
         if(id.startsWith('anime')) assert(title.isAnime);
         if(id==='korean') assert(title.originCountries?.includes('KR'));
         if(id==='chinese') assert(title.originCountries?.includes('CN'));
+        if(id==='japanese') { assert(title.originCountries?.includes('JP')); assert(!title.genres.includes('Animation')); }
         if(id==='trending' || id.startsWith('new')) {
           assert(title.providers?.some(n=>['Netflix','Disney Plus'].includes(n)));
           assert.notEqual(title.id,'tt1000017');
         }
         if(id==='trending') assert.equal(typeof title.weeklyTrend,'number');
       }
-      if(['new30','new60','new90','korean','chinese','anime','anime-new','trending'].includes(id)) assert(batch.titles.length>0,id);
+      if(['new30','new60','new90','korean','chinese','japanese','anime','anime-new','trending'].includes(id)) assert(batch.titles.length>0,id);
     }
   }
   assert(requests.some(u=>u.pathname==='/3/trending/movie/week'));
@@ -56,6 +57,7 @@ test('live feeds enforce real date, country, anime and subscription availability
   const fresh=requests.find(u=>u.pathname==='/3/discover/movie' && u.searchParams.get('primary_release_date.gte')===daysAgo(29,now));
   assert(fresh);assert.equal(fresh.searchParams.get('with_watch_providers'),'8|337|9999');
   assert.equal(fresh.searchParams.get('watch_region'),'US');assert.equal(fresh.searchParams.get('with_watch_monetization_types'),'flatrate');
+  assert(requests.some(u=>u.pathname==='/3/discover/tv' && u.searchParams.get('with_origin_country')==='JP' && u.searchParams.get('without_genres')?.includes('16')), 'J-Drama pool must exclude animation');
   const vietnam=await library.candidates({...profile,region:'VN'},'movie','trending');
   assert.deepEqual(vietnam.titles,[],'Do not substitute US availability for VN');
 });

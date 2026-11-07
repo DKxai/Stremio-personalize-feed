@@ -2,7 +2,7 @@
 
 Movie + Series + Anime, chạy bằng **Node.js 22, TypeScript, Fastify, Stremio Add-on SDK và Prisma / SQLite**. Không host phim, không cung cấp stream. Các Add-on phát nội dung hiện có vẫn dùng IMDb ID và episode ID từ Cinemeta.
 
-Bản 0.2 thay thư viện mẫu làm nguồn recommendation bằng **TMDB trực tiếp**, thêm xu hướng tuần, tác phẩm mới trong 90 ngày, phim Hàn, Trung và anime. Cần TMDB API Read Access Token của chủ server. **Thiếu token sẽ hiện trạng thái chưa cấu hình và trả 503 cho feed trực tiếp; không âm thầm dùng phim cũ làm dữ liệu mới.** `DEMO_MODE=true` chỉ dành cho demo offline, với các mục xu hướng/mới để trống.
+Bản 0.3 bổ sung catalog phim Nhật / J-Drama và ưu tiên Nhật trong profile mới. Bản 0.2 đã thay thư viện mẫu làm nguồn recommendation bằng **TMDB trực tiếp**, thêm xu hướng tuần, tác phẩm mới trong 90 ngày, phim Hàn, Trung và anime. Cần TMDB API Read Access Token của chủ server. **Thiếu token sẽ hiện trạng thái chưa cấu hình và trả 503 cho feed trực tiếp; không âm thầm dùng phim cũ làm dữ liệu mới.** `DEMO_MODE=true` chỉ dành cho demo offline, với các mục xu hướng/mới để trống.
 
 ## Bật dữ liệu thật
 
@@ -12,11 +12,11 @@ Bản 0.2 thay thư viện mẫu làm nguồn recommendation bằng **TMDB trự
 4. Mở `/health`: `metadata` phải là `tmdb`, `feedReady` phải là `true`. Đây là trạng thái cấu hình; gọi catalog để xác nhận token thực sự được upstream chấp nhận.
 5. Mở `/configure`, chọn khu vực, nền tảng, sở thích và favorites. Cài lại Add-on từ manifest của profile để Stremio nhận các catalog mới. Profile và token cũ vẫn được giữ qua migration.
 
-Mặc định dùng **US** để gộp thư viện các dịch vụ quốc tế, đồng thời ưu tiên Hàn, Trung và anime. Có thể chọn VN, KR, JP, TW, HK, SG, GB, AU, CA. Danh sách nền tảng theo khu vực có thể khác nhau. Không thay dữ liệu US vào kết quả VN nếu nền tảng không có dữ liệu tại VN.
+Mặc định dùng **US** để gộp thư viện các dịch vụ quốc tế, đồng thời ưu tiên Hàn, Trung, Nhật và anime. Có thể chọn VN, KR, JP, TW, HK, SG, GB, AU, CA. Danh sách nền tảng theo khu vực có thể khác nhau. Không thay dữ liệu US vào kết quả VN nếu nền tảng không có dữ liệu tại VN.
 
 ## Catalog
 
-13 nhóm × hai loại `movie` / `series` = **26 khai báo trong manifest**. Stremio yêu cầu mỗi catalog có một loại, nên Movie và Series có các hàng riêng.
+14 nhóm × hai loại `movie` / `series` = **28 khai báo trong manifest**. Stremio yêu cầu mỗi catalog có một loại, nên Movie và Series có các hàng riêng.
 
 | ID | Nội dung | Quy tắc |
 | --- | --- | --- |
@@ -27,6 +27,7 @@ Mặc định dùng **US** để gộp thư viện các dịch vụ quốc tế,
 | `pf-new90` | Mới phát hành · 61–90 ngày | Tuổi tác phẩm 60–89 ngày, có trên nền tảng đã chọn |
 | `pf-korean` | Phim Hàn dành cho bạn | Quốc gia nguồn KR |
 | `pf-chinese` | Phim Trung dành cho bạn | Quốc gia nguồn CN, TW hoặc HK |
+| `pf-japanese` | Phim Nhật dành cho bạn | Điện ảnh và J-Drama từ JP; anime có hàng riêng |
 | `pf-anime` | Thế giới Anime | Animation từ Nhật Bản |
 | `pf-anime-new` | Anime mới · 90 ngày qua | Anime có tuổi tác phẩm 0–89 ngày |
 | `pf-because` | Vì bạn đã xem | Tương đồng với manual watched/favorites/likes |
@@ -41,7 +42,7 @@ Mặc định dùng **US** để gộp thư viện các dịch vụ quốc tế,
 - Phim mới đang có trên dịch vụ **không đồng nghĩa** dịch vụ vừa thêm phim. TMDB không cung cấp lịch sử đầy đủ ngày được thêm lên Netflix/Disney+/HBO Max. Muốn catalog “vừa thêm lên nền tảng”, cần nguồn dữ liệu lịch sử riêng.
 - Weekly trending là xu hướng **TMDB**, không phải tổng hợp Top 10 chính thức của từng dịch vụ. Một mục xu hướng gộp Netflix, Disney+, HBO Max/Max, Prime Video, Apple TV+, Hulu, Crunchyroll, Viki, iQIYI và WeTV được lọc theo lựa chọn của profile.
 - Dữ liệu nền tảng là subscription (`flatrate`), theo khu vực, từ **JustWatch qua TMDB**. Không coi kết quả chỉ có thuê/mua là đang nằm trong gói đăng ký.
-- Catalog phim Hàn/Trung/anime tìm nội dung rộng hơn và có thể gồm phim chưa có trên các nền tảng đã chọn; chỉ các hàng xu hướng và new30/60/90 bắt buộc khớp nền tảng. Anime mới là tác phẩm anime mới, không phải lịch chiếu tập mới của toàn bộ anime đang phát.
+- Catalog phim Hàn/Trung/Nhật/anime tìm nội dung rộng hơn và có thể gồm phim chưa có trên các nền tảng đã chọn; chỉ các hàng xu hướng và new30/60/90 bắt buộc khớp nền tảng. Anime mới là tác phẩm anime mới, không phải lịch chiếu tập mới của toàn bộ anime đang phát.
 - Không bù kết quả thiếu bằng fixture hoặc phim ngoài mốc ngày. Khu vực/nền tảng ít dữ liệu có thể trả danh sách trống.
 
 ## Recommendation và giới hạn tài nguyên

@@ -52,6 +52,7 @@ export class RecommendationEngine {
       .filter(t => !window || inReleaseWindow(t.releaseDate, ...window, this.now()))
       .filter(t => catalog !== 'korean' || t.originCountries?.includes('KR'))
       .filter(t => catalog !== 'chinese' || t.originCountries?.some(c => ['CN', 'TW', 'HK'].includes(c)))
+      .filter(t => catalog !== 'japanese' || (t.originCountries?.includes('JP') && !t.genres.includes('Animation')))
       .filter(t => !catalog.startsWith('anime') || t.isAnime)
       .filter(t => catalog !== 'trending' || t.weeklyTrend !== undefined)
       .filter(t => catalog !== 'gems' || t.popularity <= 0.45)

@@ -14,10 +14,10 @@
     "typescript": "5.9.3"
   },
   "name": "stremio-personalized-feed",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Personalized Stremio feed with weekly trends, recent releases, Korean, Chinese and anime catalogs",
+  "description": "Personalized Stremio feed with weekly trends, fresh releases, Korean, Chinese, Japanese and anime catalogs",
   "engines": {
     "node": ">=22 <23"
   },

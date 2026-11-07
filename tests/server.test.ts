@@ -42,7 +42,7 @@ test('health, onboarding assets, unconfigured manifest and CORS work', async () 
   assert.match((await app.inject('/assets/configure.js')).body, /api\/profiles/);
   const response = await app.inject('/manifest.json');
   const manifest = response.json();
-  assert.equal(manifest.catalogs.length, 26);
+  assert.equal(manifest.catalogs.length, 28);
   assert.equal(manifest.behaviorHints.configurationRequired, true);
   assert.equal(response.headers['access-control-allow-origin'], '*');
   assert(!manifest.resources.includes('stream'));
@@ -156,7 +156,7 @@ test('live TMDB catalog flow accepts searched IMDb IDs, persists feed preference
     const {token:liveToken,profile}=created.json();assert.equal(profile.region,'US');assert.deepEqual(profile.preferredOrigins,['JP']);
     const header={authorization:'Bearer '+liveToken};
     const saved=(await live.inject({url:'/api/favorites',headers:header})).json();assert.equal(saved.titles[0].id,'tt1000001');
-    for(const type of ['movie','series']) for(const id of ['trending','new30','new60','new90','anime','anime-new','korean','chinese']) {
+    for(const type of ['movie','series']) for(const id of ['trending','new30','new60','new90','anime','anime-new','korean','chinese','japanese']) {
       const response=await live.inject('/'+liveToken+'/catalog/'+type+'/pf-'+id+'.json');assert.equal(response.statusCode,200,response.body);
       const metas=response.json().metas;assert(metas.length>0,type+id);
       assert(!metas.some((m:{id:string})=>m.id==='tt1000001'));

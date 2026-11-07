@@ -6,6 +6,7 @@ export const CATALOGS = [
   { id: 'new90', name: 'Mới phát hành · 61–90 ngày' },
   { id: 'korean', name: 'Phim Hàn dành cho bạn' },
   { id: 'chinese', name: 'Phim Trung dành cho bạn' },
+  { id: 'japanese', name: 'Phim Nhật dành cho bạn' },
   { id: 'anime', name: 'Thế giới Anime' },
   { id: 'anime-new', name: 'Anime mới · 90 ngày qua' },
   { id: 'because', name: 'Vì bạn đã xem' },

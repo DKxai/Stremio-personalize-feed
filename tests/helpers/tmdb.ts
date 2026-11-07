@@ -19,7 +19,7 @@ export function mockTmdb(requests: URL[] = [], clock = now) {
       result={ id, title:'Movie '+id, name:'Series '+id,
         release_date:daysAgo(ages[(id-1)%ages.length]!,clock), first_air_date:daysAgo(ages[(id-1)%ages.length]!,clock),
         origin_country:id%3===0?['CN']:id%3===1?['JP']:['KR'], original_language:id%3===1?'ja':id%3===0?'zh':'ko',
-        genres:[{id:id%3===1?16:18}], credits:{cast:[{name:'Actor'}],crew:[{job:'Director',name:'Director'}]},
+        genres:[{id:id%3===1 && id%2===1?16:18}], credits:{cast:[{name:'Actor'}],crew:[{job:'Director',name:'Director'}]},
         external_ids:{imdb_id:id===18?null:'tt'+String(1000000+id)},
         vote_average:8, vote_count:100, popularity:10, poster_path:'/poster.jpg', overview:'Test overview', adult:id===19,
         'watch/providers':{results:{US:{flatrate:id===17?[{provider_name:'Rent-only service'}]:[{provider_name:id%2?'Netflix':'Disney Plus'}],link:'https://www.themoviedb.org/'+type+'/'+id+'/watch'},VN:{flatrate:[]}}},
