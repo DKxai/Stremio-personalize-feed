@@ -134,3 +134,12 @@ test('watched lists paginate beyond 100 items without repeating, preserving actu
   const first=await feed.page(p,'movie','watched',{skip:0}),second=await feed.page(p,'movie','watched',{skip:100});
   assert.equal(first.length,100);assert.equal(second.length,25);assert.deepEqual([...first,...second].map(t=>t.id),ids);
 });
+
+test('season callbacks accept 100 video IDs and long Unicode search survives the router',async()=>{
+  const p=await profile();await app.inject({method:'PUT',url:'/api/profile',headers:auth(),payload:{genres:p.genres,favorites:p.favorites,syncLibrary:true}});
+  const videos=Array.from({length:100},(_,i)=>'tt0388629:1:'+(i+1)).join(',');
+  const accepted=await app.inject(event('series','tt0388629','watched',videos));assert.equal(accepted.statusCode,200,accepted.body);
+  assert.equal((await profile()).episodeCounts.tt0388629,100);assert(!(await profile()).watched.includes('tt0388629'));
+  const removed=await app.inject(event('series','tt0388629','unwatched',videos));assert.equal(removed.statusCode,200);assert(!(await profile()).started.includes('tt0388629'));
+  const search=await app.inject('/'+token+'/catalog/movie/pf-search/'+new URLSearchParams({search:'日本映画'.repeat(15)})+'.json');assert.equal(search.statusCode,200,search.body);
+});

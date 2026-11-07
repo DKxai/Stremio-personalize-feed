@@ -49,6 +49,8 @@ export async function buildServer(db: PrismaClient, config: Config, metadata: Me
     logger: config.logLevel === 'silent' ? false : { level: config.logLevel },
     logController: new LogController({ disableRequestLogging: true }),
     bodyLimit: 16_384,
+    // Stremio season callbacks can contain 100 video IDs in a single path segment.
+    routerOptions: { maxParamLength: 8192 },
     ajv: { customOptions: { removeAdditional: false } },
   });
   const profiles = new ProfileService(db);
@@ -131,7 +133,7 @@ export async function buildServer(db: PrismaClient, config: Config, metadata: Me
   }, async request => {
     const profile = await authenticate(request.headers.authorization);
     const { genres, favorites } = request.body;
-    if (!genres.length && !favorites.length && !profile.watched.length && !profile.started?.length) throw httpError(400, 'Choose at least one genre or favorite');
+    if (!genres.length && !favorites.length && !profile.watched.length && !profile.started?.length && !profile.likes.length && !profile.saved?.length) throw httpError(400, 'Choose at least one genre or favorite');
     const prefs = feedPreferences({ ...profile, ...request.body });
     const types = await validateFavorites(favorites, prefs.region);
     await profiles.update(profile.id, genres, favorites, prefs, types);
