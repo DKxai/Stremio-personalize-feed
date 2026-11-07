@@ -1,3 +1,5 @@
+import type { FeedPreferences } from './preferences.js';
+
 export type MediaType = 'movie' | 'series';
 
 export interface Title {
@@ -10,11 +12,21 @@ export interface Title {
   directors: string[];
   keywords: string[];
   quality: number;
-  // Editorial demonstration weight, NOT live TMDB popularity or trending.
   popularity: number;
+  tmdbId?: number;
+  releaseDate?: string;
+  originCountries?: string[];
+  originalLanguage?: string;
+  isAnime?: boolean;
+  poster?: string;
+  overview?: string;
+  providers?: string[];
+  providerLink?: string;
+  weeklyTrend?: number;
+  source?: 'tmdb' | 'fixtures';
 }
 
-export interface Profile {
+export interface Profile extends Partial<FeedPreferences> {
   id: string;
   version: number;
   genres: string[];

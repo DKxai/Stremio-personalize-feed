@@ -4,9 +4,9 @@ import { CATALOGS } from '../../packages/recommendation/catalogs.js';
 export function createManifest(configured = false): Manifest {
   return {
     id: 'community.dkxai.personalizedfeed',
-    version: '0.1.0',
+    version: '0.2.0',
     name: 'Personalized Feed',
-    description: 'Phase 1 demo: personal Movie & Series catalogs using a small fixture library. Configure genres and favorites. No streams. Trending weights are illustrative, not live.',
+    description: 'Feed Movie + Series cá nhân hóa: xu hướng tuần, phim phát hành trong 90 ngày, phim Hàn, Trung và Anime. Xu hướng: TMDB; nền tảng theo khu vực: JustWatch qua TMDB.',
     types: ['movie', 'series'],
     resources: ['catalog', { name: 'meta', types: ['movie', 'series'], idPrefixes: ['tt'] }],
     catalogs: (['movie', 'series'] as const).flatMap(type => CATALOGS.map(c => ({

@@ -20,6 +20,7 @@ model User {
 model Preference {
   userId String @id
   genres String
+  feed String @default("{}")
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
@@ -39,4 +40,23 @@ model Interaction {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, mediaId])
+}
+
+model ExternalCache {
+  key       String   @id
+  payload   String
+  expiresAt DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([expiresAt])
+}
+
+model MovieMetadata {
+  key       String   @id
+  imdbId    String
+  type      String
+  payload   String
+  updatedAt DateTime @updatedAt
+
+  @@index([imdbId, type])
 }

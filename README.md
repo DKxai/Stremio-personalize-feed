@@ -1,158 +1,162 @@
 # Stremio Personalized Feed
 
-Add-on Movie + Series với 6 catalog theo profile riêng, chạy trong một ứng dụng **Node.js 22 + TypeScript + Fastify + Stremio Add-on SDK + Prisma / SQLite**.
+Movie + Series + Anime, chạy bằng **Node.js 22, TypeScript, Fastify, Stremio Add-on SDK và Prisma / SQLite**. Không host phim, không cung cấp stream. Các Add-on phát nội dung hiện có vẫn dùng IMDb ID và episode ID từ Cinemeta.
 
-**Trạng thái: bản Phase 1 có thể tự host để kiểm thử, sử dụng 49 phim/series mẫu.** Không cần TMDB key. Chưa phải MVP hoàn chỉnh theo roadmap: chưa có candidate generation từ TMDB, dữ liệu trending trực tiếp, collaborative filtering hoặc đồng bộ lịch sử xem.
+Bản 0.2 thay thư viện mẫu làm nguồn recommendation bằng **TMDB trực tiếp**, thêm xu hướng tuần, tác phẩm mới trong 90 ngày, phim Hàn, Trung và anime. Cần TMDB API Read Access Token của chủ server. **Thiếu token sẽ hiện trạng thái chưa cấu hình và trả 503 cho feed trực tiếp; không âm thầm dùng phim cũ làm dữ liệu mới.** `DEMO_MODE=true` chỉ dành cho demo offline, với các mục xu hướng/mới để trống.
 
-## Deploy nhanh
+## Bật dữ liệu thật
 
-### Render — thử nghiệm với HTTPS
+1. Lấy **API Read Access Token** tại [TMDB API settings](https://www.themoviedb.org/settings/api). Đây là token API của ứng dụng, không phải mật khẩu tài khoản TMDB hay Stremio.
+2. Đặt `TMDB_READ_ACCESS_TOKEN` trong Environment của hosting. Có thể dùng `TMDB_API_KEY` thay thế. Không commit hoặc gửi token trong issue, log, manifest hay URL.
+3. Giữ `DEMO_MODE=false`, build và restart.
+4. Mở `/health`: `metadata` phải là `tmdb`, `feedReady` phải là `true`. Đây là trạng thái cấu hình; gọi catalog để xác nhận token thực sự được upstream chấp nhận.
+5. Mở `/configure`, chọn khu vực, nền tảng, sở thích và favorites. Cài lại Add-on từ manifest của profile để Stremio nhận các catalog mới. Profile và token cũ vẫn được giữ qua migration.
 
-Repo có sẵn `render.yaml`. Trong Render, chọn **New → Blueprint**, kết nối repository này và dùng cấu hình mặc định. Blueprint dùng gói Free để chạy thử; bạn tự xem và xác nhận lựa chọn dịch vụ trên Render.
+Mặc định dùng **US** để gộp thư viện các dịch vụ quốc tế, đồng thời ưu tiên Hàn, Trung và anime. Có thể chọn VN, KR, JP, TW, HK, SG, GB, AU, CA. Danh sách nền tảng theo khu vực có thể khác nhau. Không thay dữ liệu US vào kết quả VN nếu nền tảng không có dữ liệu tại VN.
 
-Nếu tạo **New → Web Service** thủ công, chọn repository này và nhập:
+## Catalog
 
-| Thiết lập | Giá trị |
-| --- | --- |
-| Runtime | Node |
-| Node version | `22` |
-| Build command | `npm ci --include=dev && npm run build` |
-| Start command | `npm start` |
-| Health check | `/health` |
-| `DATABASE_URL` | `file:../data/feed.db` |
-| `STORAGE_MODE` | `ephemeral` |
+13 nhóm × hai loại `movie` / `series` = **26 khai báo trong manifest**. Stremio yêu cầu mỗi catalog có một loại, nên Movie và Series có các hàng riêng.
 
-Ứng dụng nhận `PORT` và `RENDER_EXTERNAL_URL` do Render cung cấp. Không đặt `PUBLIC_BASE_URL` thành `localhost` khi deploy. Nếu dùng domain riêng, đặt `PUBLIC_BASE_URL=https://domain-cua-ban`.
+| ID | Nội dung | Quy tắc |
+| --- | --- | --- |
+| `pf-recommended` | Dành cho bạn | Sở thích, favorites/likes, độ mới, quốc gia, anime và tín hiệu cộng tác khi đủ dữ liệu |
+| `pf-trending` | Xu hướng tuần này · Các nền tảng | TMDB weekly trending, giao với nền tảng đăng ký đang có phim tại khu vực đã chọn |
+| `pf-new30` | Mới phát hành · 30 ngày qua | Tuổi tác phẩm 0–29 ngày, có trên nền tảng đã chọn |
+| `pf-new60` | Mới phát hành · 31–60 ngày | Tuổi tác phẩm 30–59 ngày, có trên nền tảng đã chọn |
+| `pf-new90` | Mới phát hành · 61–90 ngày | Tuổi tác phẩm 60–89 ngày, có trên nền tảng đã chọn |
+| `pf-korean` | Phim Hàn dành cho bạn | Quốc gia nguồn KR |
+| `pf-chinese` | Phim Trung dành cho bạn | Quốc gia nguồn CN, TW hoặc HK |
+| `pf-anime` | Thế giới Anime | Animation từ Nhật Bản |
+| `pf-anime-new` | Anime mới · 90 ngày qua | Anime có tuổi tác phẩm 0–89 ngày |
+| `pf-because` | Vì bạn đã xem | Tương đồng với manual watched/favorites/likes |
+| `pf-genres` | Thể loại yêu thích | Phù hợp genres đã chọn |
+| `pf-gems` | Đáng xem, ít người biết | Tương đồng, chất lượng, độ phổ biến thấp |
+| `pf-top` | Lựa chọn hàng đầu | Mức phù hợp và điểm chất lượng được điều chỉnh theo số lượt đánh giá |
 
-Sau khi service chạy, mở **`https://<ten-service>.onrender.com/configure`**, chọn sở thích và bấm **Cài Add-on vào Stremio**, hoặc dán manifest URL được tạo vào giao diện cài Add-on của Stremio.
+### Ý nghĩa chính xác của “mới” và “xu hướng”
 
-**Render Free chỉ dùng để thử:** không gắn persistent disk, dữ liệu SQLite và profile sẽ mất khi restart / redeploy. Profile cũ sẽ không còn truy cập được. Muốn giữ profile, dùng Docker với volume hoặc dịch vụ có persistent disk. Với Render, disk bền vững yêu cầu dịch vụ trả phí; kiểm tra gói và chi phí hiện tại trước khi chọn. Dịch vụ Free có thể ngủ khi không có request nên lần gọi đầu có thể chậm.
+- Ngày tính theo UTC, cập nhật theo ngày hiện tại, không cố định theo năm phát triển. Không nhận tác phẩm chưa phát hành, ngày không hợp lệ hoặc không có ngày vào mục mới.
+- Movie dùng **ngày phát hành đầu tiên**; Series dùng **ngày phát tập đầu tiên**. Series cũ có mùa mới không được gắn thành series mới.
+- Phim mới đang có trên dịch vụ **không đồng nghĩa** dịch vụ vừa thêm phim. TMDB không cung cấp lịch sử đầy đủ ngày được thêm lên Netflix/Disney+/HBO Max. Muốn catalog “vừa thêm lên nền tảng”, cần nguồn dữ liệu lịch sử riêng.
+- Weekly trending là xu hướng **TMDB**, không phải tổng hợp Top 10 chính thức của từng dịch vụ. Một mục xu hướng gộp Netflix, Disney+, HBO Max/Max, Prime Video, Apple TV+, Hulu, Crunchyroll, Viki, iQIYI và WeTV được lọc theo lựa chọn của profile.
+- Dữ liệu nền tảng là subscription (`flatrate`), theo khu vực, từ **JustWatch qua TMDB**. Không coi kết quả chỉ có thuê/mua là đang nằm trong gói đăng ký.
+- Catalog phim Hàn/Trung/anime tìm nội dung rộng hơn và có thể gồm phim chưa có trên các nền tảng đã chọn; chỉ các hàng xu hướng và new30/60/90 bắt buộc khớp nền tảng. Anime mới là tác phẩm anime mới, không phải lịch chiếu tập mới của toàn bộ anime đang phát.
+- Không bù kết quả thiếu bằng fixture hoặc phim ngoài mốc ngày. Khu vực/nền tảng ít dữ liệu có thể trả danh sách trống.
 
-Để chuyển sang persistent disk: gắn disk vào `/var/data`, đặt `DATABASE_URL=file:/var/data/feed.db`, `STORAGE_MODE=persistent` và chỉ chạy **một instance**. Đây là database mới nếu trước đó bạn dùng đường dẫn demo; cần chuyển dữ liệu cũ riêng nếu muốn giữ profile.
+## Recommendation và giới hạn tài nguyên
 
-### Docker — lưu profile qua restart
+Candidate generator tìm Movie/TV, genres, quốc gia, anime và dữ liệu tuần. Các pool được xen kẽ để phim Hàn, Trung, anime không bị loại hết bởi giới hạn request. Tối đa 40 TMDB title candidates cho một catalog; đây không phải toàn bộ thư viện phim. Titles thiếu IMDb mapping bị bỏ để giữ tương thích streaming Add-on.
+
+Ranking ổn định, có chiến lược riêng theo catalog: Jaccard genres/cast/directors/keywords, positive/negative affinity, độ mới, quốc gia yêu thích, anime, Bayesian rating và diversity penalty. Favorites, likes, watched và dislikes được loại khỏi danh sách đề xuất. Tín hiệu dislike cũng làm giảm độ tương đồng. Không dùng random.
+
+Hybrid item co-occurrence có trọng số nhỏ trong Recommended/Top/Gems: chỉ dùng ứng viên được **ít nhất ba profile khác nhau** có sở thích giao nhau cùng thích. Dữ liệu ít thì quay về content-based. Đây là baseline cộng tác, chưa phải mô hình học máy đã được đánh giá độ chính xác bằng hành vi thật.
+
+TMDB chạy tối đa bốn request đồng thời trên một process; các request trùng được gộp. Candidate cache: tối đa 100 hàng / 30 phút; ranking: tối đa 500 danh sách / 5 phút, theo user ID + profile version + catalog + nguồn + ngày. Upstream response được cache trong RAM và SQLite; dữ liệu danh sách khoảng 30 phút, metadata/provider tối đa 24 giờ. Cache SQLite được dọn theo thời gian và sau mỗi 100 lượt ghi, giữ khoảng 500 response / 2.000 metadata records. Phản hồi có giới hạn kích thước lưu cache. Thay preferences/interaction tăng version và làm mới ranking.
+
+Chỉ chạy **một instance** với SQLite trên persistent storage. Không cần Redis, Elasticsearch, GPU hoặc microservices. Giới hạn này phù hợp mục tiêu server nhỏ nhưng chưa thay thế benchmark tải production.
+
+## Chạy local
 
 ```bash
-docker compose up -d --build
+npm ci --include=dev
+cp .env.example .env
+# Điền TMDB_READ_ACCESS_TOKEN trong .env, hoặc DEMO_MODE=true để demo offline.
+npm run build
+npm start
 ```
 
-Mở `http://localhost:7000/configure`. SQLite nằm trong named volume `feed-data`; không dùng `docker compose down -v` nếu muốn giữ dữ liệu.
+Mở `http://localhost:7000/configure`. Startup tạo file SQLite nếu cần, áp dụng migration đã commit, rồi khởi động app. `npm run dev` dùng sau khi đã migrate. Không commit `.env`, database hoặc backup.
 
-Khi đưa lên Internet, đặt `PUBLIC_BASE_URL` thành domain HTTPS của bạn, dùng reverse proxy TLS và giữ volume `/app/data`. Ví dụ tạo `.env`:
+## Botkeep Cloud
 
-```dotenv
-PUBLIC_BASE_URL=https://feed.example.com
-REGISTRATION_KEY=ma-moi-rieng-cua-ban
-```
+Chọn **Application → Node.js 22 → GitHub**, repository này, branch `main`, root `.`. Repo public nhập được bằng URL; repo private cần quyền riêng cho Botkeep GitHub App.
 
-Compose giới hạn runtime ở 768 MB và 0.5 CPU; đây là cấu hình giới hạn, chưa phải số đo tải production. Build image nên chạy ngoài server 1 GB nếu không đủ RAM lúc cài dependency/compile.
-
-### Botkeep Cloud
-
-Tại trang Create, chọn ứng dụng **Node.js 22**, nguồn GitHub, repository này, branch `main`, project root là gốc repository (`.`). Repository public có thể nhập bằng URL. Với repository private, cần cài/cấp quyền cho **Botkeep GitHub App**; quyền của ChatGPT không thay thế quyền của Botkeep.
-
-Botkeep đã được kiểm tra thực tế với bước cài dependencies do nền tảng quản lý trước khi chạy startup command. Trên cấu hình này, dùng:
+Botkeep quản lý bước cài dependencies. Giữ devDependencies để compile, rồi dùng startup:
 
 ```bash
 npm run build && npm start
 ```
 
-Giữ devDependencies trong bước cài vì TypeScript cần cho build. Nếu một hosting khác không tự cài dependencies, chạy `npm ci --include=dev` trong bước build trước. Tránh cài lại lần thứ hai trong startup khi Botkeep đã hoàn thành locked install. Nếu gói cho phép, cấp 1024 MB RAM, 0.5 vCore và 1024 MB storage để bắt đầu; mức này chưa được benchmark tải trên Botkeep. Không cần tạo database server riêng vì bản này dùng SQLite.
+Trên hosting không tự cài dependencies, build bằng `npm ci --include=dev && npm run build`. Nếu `npm ci` báo thiếu lockfile, kiểm tra source đã import đủ `package.json` và `package-lock.json` ở gốc trước khi restart.
 
-Ứng dụng tự nhận cổng `SERVER_PORT` được Botkeep cấp (ưu tiên hơn `PORT`) và bind `0.0.0.0`. Không ép cổng `7000` nếu panel đã cấp cổng khác. Trong Environment: đặt `NODE_ENV=production`, `HOST=0.0.0.0`, `DATABASE_URL=file:../data/feed.db` và `STORAGE_MODE=ephemeral` để chạy thử trước khi xác nhận volume thật.
+Environment:
 
-Trong **Domains**, cấu hình alias hoặc domain của bạn với HTTPS tới cổng được cấp. Sau đó đặt `PUBLIC_BASE_URL` thành origin HTTPS thực tế (không có `/configure` hay `/manifest.json`) rồi restart. Kiểm tra `/health`, mở `/configure` và tạo profile để cài vào Stremio.
-
-Chỉ đổi sang `STORAGE_MODE=persistent` sau khi xác nhận đường dẫn volume bền vững; trỏ `DATABASE_URL=file:/<duong-dan-volume-thuc-te>/feed.db` tới đúng volume đó. Chạy một instance. Nếu đổi đường dẫn, cần chuyển database riêng nếu muốn giữ profile cũ. Không thể deploy khi Botkeep báo hết capacity. Repository này không tự tạo server, domain hay tài khoản Botkeep.
-
-Xem hướng dẫn chính thức: [GitHub import](https://botkeep.cloud/docs/github), [HTTP port và Domains](https://botkeep.cloud/docs/hosting).
-
-## Chạy local
-
-```bash
-npm ci
-cp .env.example .env
-npm run build
-npm start
+```dotenv
+NODE_ENV=production
+HOST=0.0.0.0
+DATABASE_URL=file:../data/feed.db
+STORAGE_MODE=persistent
+PUBLIC_BASE_URL=https://<domain-https-cua-ban>
+TMDB_READ_ACCESS_TOKEN=<nhap-rieng-trong-panel>
+DEMO_MODE=false
 ```
 
-`npm start` tạo thư mục và file database nếu chưa có, chạy các migration đã commit, rồi khởi động server. Chạy lại không xóa profile. Với chế độ phát triển: sau khi đã khởi tạo database bằng `npm start`, dùng `npm run dev`.
+App ưu tiên `SERVER_PORT` do Botkeep cấp, sau đó mới dùng `PORT`; không ép cổng 7000 nếu đã có cổng được cấp. Trong Domains, bật HTTPS và trỏ tới cổng đó. `PUBLIC_BASE_URL` chỉ là origin, không có `/configure` hoặc `/manifest.json`.
 
-Ứng dụng bind `0.0.0.0` để chạy được trong container. Android phải dùng domain HTTPS hoặc địa chỉ máy chủ mà thiết bị thực sự truy cập được; `localhost` trên điện thoại là chính điện thoại. Stremio Web cần endpoint HTTPS để tránh mixed content. Việc cài thực tế trên Android/Desktop vẫn cần kiểm thử trên thiết bị.
+Bắt đầu với 1024 MB RAM, 0.5 vCore, 1024 MB storage. Xác nhận filesystem giữ dữ liệu qua restart và import; `STORAGE_MODE` chỉ là mô tả, không tự tạo ổ bền vững. Giữ database trên volume thật. Khi sync GitHub, chọn **Merge files** để giữ thư mục data; backup trước khi import và không chọn replace/wipe nếu chưa có bản sao. Redeploy không đồng nghĩa pull code GitHub.
 
-## Các catalog
+Tài liệu: [GitHub import](https://botkeep.cloud/docs/github), [HTTP port và Domains](https://botkeep.cloud/docs/hosting).
 
-Mỗi catalog có hai loại `movie` / `series`: tổng cộng 12 khai báo trong manifest.
+## Docker / hosting khác
 
-| ID | Hiển thị | Chiến lược bản mẫu |
-| --- | --- | --- |
-| `pf-recommended` | Recommended for You | Thể loại + nội dung tương đồng với favorites/likes |
-| `pf-because` | Because You Watched | Tương đồng với các phim chủ động đánh dấu đã xem; favorites/likes cũng là seed ban đầu |
-| `pf-genres` | Your Favorite Genres | Lọc và xếp hạng theo thể loại đã chọn |
-| `pf-gems` | Hidden Gems | Tương đồng và trọng số độ phổ biến thấp trong fixture |
-| `pf-trending` | Trending for You | Sở thích + trọng số độ phổ biến minh họa, chưa có xu hướng trực tiếp |
-| `pf-top` | Top Picks | Sở thích + điểm chất lượng minh họa |
+```bash
+docker compose up -d --build
+```
 
-Ranking ổn định, không random; có diversity penalty cho một số catalog. Mỗi trang tối đa 20 mục, phân trang bằng `skip=20`. Các phim đã favorite/like/watched hoặc bị dislike được loại khỏi candidate list. Catalog Because trống khi chưa có seed. Cast/director/keywords của fixture chỉ là dữ liệu minh họa giới hạn, không phải bản sao đầy đủ TMDB. Công thức sẽ tiếp tục được hiệu chỉnh ở phase recommendation.
+SQLite nằm trong named volume `feed-data`; không dùng `docker compose down -v` nếu muốn giữ profile. Đặt `PUBLIC_BASE_URL`, `TMDB_READ_ACCESS_TOKEN`, `DEMO_MODE=false` trong environment của container (xem compose.yaml). Khi đưa lên Internet cần HTTPS reverse proxy. Compose giới hạn 768 MB RAM / 0.5 CPU; build nên chạy ngoài máy nhỏ nếu không đủ RAM.
 
-Các preview dùng IMDb ID để tương thích Add-on phát nội dung hiện có. Poster đến từ Metahub. Metadata chi tiết được lấy từ Cinemeta với timeout và cache giới hạn; series giữ nguyên episode ID do Cinemeta cung cấp. Khi upstream lỗi, movie có metadata cơ bản dự phòng; series trả `meta: null`, không tạo episode giả. Hãy giữ Cinemeta cài trong Stremio. Không có stream handler và không lưu trữ phim.
+Có sẵn `render.yaml` để thử bằng Render Blueprint. Cần thêm TMDB token trong Environment. Bản Free dùng ổ tạm, `STORAGE_MODE=ephemeral`; dữ liệu profile có thể mất khi restart/redeploy. Chọn persistent disk trước khi dùng lâu dài và cấu hình `DATABASE_URL` đúng mount path. Gói/giá/capacity do hosting quyết định.
 
 ## Profile và API
 
-Onboarding tạo profile riêng; token là capability để truy cập và sửa profile, không phải tài khoản Stremio. Token chỉ xuất hiện khi tạo và trong manifest URL, database chỉ giữ hash. Không chia sẻ manifest URL công khai. Đường dẫn cấu hình `/<token>/configure` cho phép chỉnh sửa profile; trang còn nhớ token trong session của tab. Chưa có đăng nhập, khôi phục tài khoản hay xoay token.
+Token riêng là capability của profile, không phải tài khoản Stremio. Chỉ hash được lưu trong database. Manifest URL chứa token; giữ riêng để cài lại hoặc chỉnh sở thích. Có thể chỉnh qua `/<token>/configure`; trang lưu token trong session của tab. Chưa có account recovery hoặc đồng bộ tài khoản Stremio.
 
 | Endpoint | Công dụng |
 | --- | --- |
-| `GET /health` | Kiểm tra ứng dụng và kết nối SQLite |
-| `GET /configure` | Tạo profile, chọn genres + favorites |
-| `GET /manifest.json` | Manifest yêu cầu cấu hình |
-| `POST /api/profiles` | Tạo profile: `{genres: [], favorites: [], registrationKey?: "..."}` |
-| `GET /api/profile` | Profile hiện tại, header `Authorization: Bearer <token>` |
-| `PUT /api/profile` | Thay toàn bộ genres/favorites, cùng header |
-| `POST /api/interactions` | `{mediaId: "tt...", kind: "like" / "dislike" / "watched" / "clear"}`, cùng header |
+| `GET /health` | Trạng thái app, SQLite, nguồn dữ liệu và cấu hình feed |
+| `GET /api/library` | Genres, catalogs, nền tảng, khu vực, defaults và ví dụ onboarding |
+| `GET /api/search?q=...&region=US` | Tìm Movie/Series/anime trong TMDB, trả IMDb IDs |
+| `POST /api/profiles` | Tạo profile với genres, favorites và tùy chọn feed |
+| `GET /api/profile` | Profile hiện tại; Bearer token |
+| `GET /api/favorites` | Metadata favorites đã lưu; Bearer token |
+| `PUT /api/profile` | Thay genres/favorites, tùy chọn cập nhật cấu hình feed; Bearer token |
+| `POST /api/interactions` | `{mediaId:"tt...",kind:"like"/"dislike"/"watched"/"clear"}`; Bearer token |
 | `GET /<token>/manifest.json` | Manifest đã cấu hình |
-| `GET /<token>/catalog/movie/pf-recommended.json` | Catalog Movie |
-| `GET /<token>/catalog/series/pf-recommended/skip=20.json` | Trang tiếp theo của Series |
-| `GET /<token>/meta/movie/tt0816692.json` | Metadata chi tiết |
+| `GET /<token>/catalog/series/pf-anime-new.json` | Anime series mới |
+| `GET /<token>/catalog/movie/pf-recommended/skip=20.json` | Trang kế tiếp, tối đa 20 kết quả / trang |
+| `GET /<token>/meta/series/<imdb-id>.json` | Chi tiết từ Cinemeta, giữ episode IDs thật |
 
-API chỉ chấp nhận ID trong fixture ở Phase 1. Mỗi title có một trạng thái interaction hiện tại; thao tác mới thay thế trạng thái trước. `watched` là thao tác chủ động, không phải sự kiện xem tự động. Add-on Protocol không cung cấp toàn bộ watch history / click events cho backend này. Tương tác trên trang cấu hình cập nhật feed; Stremio có thể cần tải lại catalog để thấy thay đổi.
+Profile body bắt buộc `genres: string[]`, `favorites: string[]` (tối đa 10). Tùy chọn: `region`, `platforms`, `preferredOrigins`, `preferAnime`. Khi PUT bỏ các tùy chọn này thì giữ giá trị hiện tại. Có thể yêu cầu `registrationKey` khi tạo nếu server bật `REGISTRATION_KEY`. IMDb IDs không còn bị khóa vào thư viện mẫu; phải resolve được qua metadata.
 
-Cache recommendation là TTL/LRU trong RAM (tối đa 500 danh sách, 5 phút), key gồm user ID + version + type + catalog. Thay đổi profile/interaction tăng version. HTTP response của profile/catalog có `private, no-store`. Cache mất khi restart và được tính lại từ dữ liệu SQLite.
+Thao tác interaction mới thay trạng thái trước của cùng title. Giữ tối đa 500 interaction gần nhất / profile. Stremio Add-on Protocol **không tự gửi watch history hay sự kiện xem**; Like/Dislike/Đã xem trên trang quản lý là tín hiệu chủ động. Tích hợp lịch sử từ dịch vụ khác cần OAuth/đồng ý riêng và chưa có trong bản này.
 
-Ứng dụng không log URL/body request vì đường dẫn chứa token; reverse proxy và hosting cũng cần cấu hình ẩn token khỏi access log. `REGISTRATION_KEY` tùy chọn hạn chế tạo profile công khai. Rate limiting chạy trong RAM theo IP kết nối; mặc định không tin `X-Forwarded-For`, nên sau reverse proxy một số người dùng có thể dùng chung giới hạn.
+Metadata chi tiết ưu tiên Cinemeta, giữ ID tập phim thật. Khi upstream lỗi, movie có fallback cơ bản; series trả `meta:null` thay vì tạo tập giả. Hãy giữ Cinemeta cài trong Stremio. Poster TMDB có fallback Metahub. Attribution TMDB / JustWatch xuất hiện trên trang cấu hình và dữ liệu nền tảng trong preview.
 
-## Kiểm thử
+Ứng dụng không log URL/body vì đường dẫn chứa token. Proxy/hosting cũng cần ẩn URL chứa token khỏi access log. HTTP profile/catalog dùng `private, no-store`; cache ranking nằm bên trong app. Rate limit chạy trong RAM theo IP kết nối; không mặc định tin `X-Forwarded-For`.
+
+## Backup / restore
+
+```bash
+npm run backup
+# Hoặc đặt BACKUP_DIR vào ổ lưu bản sao riêng.
+```
+
+Script dùng SQLite `VACUUM INTO` để chụp snapshot nhất quán, bao gồm dữ liệu đã commit trong WAL, rồi mở bản sao và chạy `integrity_check`. File nằm ở `data/backups`, quyền 0600, không ghi đè file cũ. Cần đủ disk; tải bản sao ra nơi khác và tự đặt lịch phù hợp hosting. Bản sao cùng ổ không bảo vệ khi mất cả server.
+
+Restore: dừng ứng dụng, giữ một bản sao database hiện tại, thay database trên đúng volume bằng bản backup đã kiểm tra; không giữ WAL/SHM cũ cạnh database thay thế. Khởi động lại để migrations chạy. Kiểm tra `/health`, profile và catalog. Thử restore vào instance riêng trước khi phụ thuộc vào quy trình. Bản 0.2 có test thực tế backup và đọc lại profile/cache.
+
+## Kiểm thử và phần còn lại
 
 ```bash
 npm run check
+npm audit
 ```
 
-Gồm TypeScript check, integration tests với SQLite tạm thật, và build. Tests xác nhận 12 catalog, phân trang không lặp, profile khác nhau có ranking khác nhau, tín hiệu tương tác làm mới cache, xác thực đầu vào/token, và profile còn nguyên khi đóng/mở lại database. Metadata tests dùng fetch giả để chạy offline. GitHub Actions chạy cùng lệnh bằng Node 22.
+GitHub CI dùng Node 22. Tests chạy offline với fetch mock có kiểm soát, SQLite thật và migration thật: date boundaries/leap year/future, regional provider filtering, phim Hàn/Trung/anime, IMDb mapping, profile isolation/cache invalidation, concurrency/deduplication, hybrid support threshold, nâng cấp database Phase 1 đã có dữ liệu, persistence và backup/restore.
 
-Docker image và cài Add-on thực tế trên Android/Desktop cần xác nhận riêng trong môi trường đích; HTTP tests không thay thế kiểm thử thiết bị.
+Live smoke cần token thật: mở catalog tuần/mới/anime, xác nhận poster, ID, mốc ngày và thư viện khu vực. Cài thực tế trên Stremio Android/Desktop và benchmark tải vẫn phải làm trong môi trường đích. Tests offline không chứng minh chất lượng recommendation ngoài thực tế.
 
-Các `overrides` trong package.json khóa bản vá của `deepmerge-ts`, `path-to-regexp` và `tmp` trong cây dependencies của Prisma/SDK. Chúng giữ nguyên phiên bản API chính của Prisma và Stremio SDK; hãy chạy `npm run check` và `npm audit` khi thay đổi lockfile. Các luồng migration, catalog và profile được kiểm tra bằng SQLite thật.
+Đã có nền tảng Phase 2–4 và baseline hybrid/hiệu năng Phase 6. Phase 5 còn phụ thuộc hạ tầng thật, cấu hình token, kiểm thử thiết bị, backup ngoài server và thử tải. Chưa có collaborative model train offline, A/B evaluation hay watch-history integration; không đánh dấu toàn bộ roadmap hoàn tất.
 
-## Sao lưu SQLite
-
-Với volume thật: dừng ứng dụng trước khi sao chép database để tránh bản sao lệch với WAL. Sao chép toàn bộ thư mục data (cả các file `-wal` / `-shm` nếu còn), khởi động lại, rồi lưu bản sao ra nơi khác. Ví dụ Docker Compose:
-
-```bash
-docker compose stop feed
-docker compose cp feed:/app/data ./backup-data
-docker compose start feed
-```
-
-Kiểm thử restore vào instance riêng trước khi cần dùng bản sao. Không commit database hoặc token vào Git.
-
-## Cấu trúc và phần tiếp theo
-
-`apps/addon` giữ manifest/SDK handlers; `apps/api` giữ Fastify routes, onboarding và profile service; `packages/recommendation` giữ ranking/cache; `packages/metadata` giữ fixture, Cinemeta và mapper; `prisma` giữ schema và migration.
-
-1. **Tiếp theo:** thay fixture bằng TMDB candidate generator, mapping IMDb/TMDB, metadata cache và attribution phù hợp.
-2. Hoàn thiện profile, token lifecycle, nhiều tín hiệu đồng thời và quản lý dữ liệu.
-3. Đánh giá ranking theo từng catalog, dữ liệu mới, diversity và metrics.
-4. Kiểm thử Android/Desktop, deployment với disk thật, backup/restore và tải trên cấu hình mục tiêu.
-5. Chỉ triển khai hybrid/collaborative khi có đủ dữ liệu và cơ chế đồng ý phù hợp.
-
-Tài liệu tham khảo: [Stremio SDK](https://github.com/Stremio/stremio-addon-sdk), [Render Node deployment](https://render.com/docs/deploy-node-express-app), [Render persistent disks](https://render.com/docs/disks), [Render free services](https://render.com/docs/free).
+Tài liệu nguồn: [TMDB discover](https://developer.themoviedb.org/reference/discover-movie), [weekly trending](https://developer.themoviedb.org/reference/trending-movies), [JustWatch attribution](https://developer.themoviedb.org/reference/tv-series-watch-providers), [SQLite VACUUM INTO](https://www.sqlite.org/lang_vacuum.html), [Stremio SDK](https://github.com/Stremio/stremio-addon-sdk).

@@ -18,11 +18,11 @@ export class TtlCache<T> {
     return entry.value;
   }
 
-  set(key: string, value: T): void {
+  set(key: string, value: T, ttlMs = this.ttlMs): void {
     this.entries.delete(key);
     while (this.entries.size >= this.maxEntries) {
       this.entries.delete(this.entries.keys().next().value!);
     }
-    this.entries.set(key, { value, expires: Date.now() + this.ttlMs });
+    this.entries.set(key, { value, expires: Date.now() + ttlMs });
   }
 }

@@ -5,6 +5,9 @@ services:
       - "7000:7000"
     environment:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:7000}
+      TMDB_READ_ACCESS_TOKEN: ${TMDB_READ_ACCESS_TOKEN:-}
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
+      DEMO_MODE: ${DEMO_MODE:-false}
       REGISTRATION_KEY: ${REGISTRATION_KEY:-}
     volumes:
       - feed-data:/app/data
