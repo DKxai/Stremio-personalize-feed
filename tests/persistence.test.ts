@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { PrismaClient } from '@prisma/client';
 import { MetadataStore } from '../packages/metadata/store.js';
+import { LiveLibrary } from '../packages/metadata/live-library.js';
+import { mockTmdb } from './helpers/tmdb.js';
 import { TmdbClient } from '../packages/metadata/tmdb.js';
 import { ProfileService } from '../apps/api/services/profiles.js';
 import { feedPreferences } from '../packages/shared/preferences.js';
@@ -17,7 +19,7 @@ const run = (args: string[], env: Record<string,string>) => {
   const result=spawnSync(process.execPath,args,{env:{...process.env,...env},encoding:'utf8'});
   assert.equal(result.status,0,result.stderr || result.stdout);return result;
 };
-test('migration upgrades a populated Phase 1 database and backup restores profiles and metadata cache',async()=>{
+test('migration upgrades a populated Phase 1 database and backup restores profiles and SQLite catalogs refresh in the background', { timeout: 15_000 }, async()=>{
   const directory=mkdtempSync(join(tmpdir(),'pf-upgrade-'));
   const databaseUrl='file:'+join(directory,'feed.db');
   closeSync(openSync(join(directory,'feed.db'),'a'));
@@ -51,6 +53,40 @@ test('migration upgrades a populated Phase 1 database and backup restores profil
     await cachedClient.get('test');assert.equal(fetchCalls,1);
     const restartedClient=new TmdbClient({token:'test'},new MetadataStore(db),(async()=>{throw new Error('network must not be needed');}) as typeof fetch);
     assert.deepEqual(await restartedClient.get('test'),{results:[1]});
+    let now = new Date('2026-11-07T23:55:00Z');
+    const original = new LiveLibrary(new TmdbClient({token:'test-private-token'}, undefined, mockTmdb()), store, () => now);
+    const initialBatch = await original.candidates(created.profile, 'movie', 'japanese');
+    assert(initialBatch.titles.length);
+    const persistedBatch = JSON.parse(JSON.stringify(initialBatch));
+
+    // A new process can use SQLite even after the snapshot needs refreshing.
+    now = new Date(now.getTime() + 31 * 60_000);
+    const refreshRequests: URL[] = [];
+    let finishRefresh!: () => void;
+    const refreshGate = new Promise<void>(resolve => { finishRefresh = resolve; });
+    const tmdb = mockTmdb(refreshRequests);
+    const slowFetch: typeof fetch = async (input, options) => {
+      await refreshGate;
+      return tmdb(input, options);
+    };
+    const restarted = new LiveLibrary(new TmdbClient({token:'test-private-token'}, undefined, slowFetch), new MetadataStore(db), () => now);
+    let cachedBatch;
+    try {
+      cachedBatch = await Promise.race([
+        restarted.candidates(created.profile, 'movie', 'japanese'),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Refresh blocked the response')), 1000).unref()),
+      ]);
+      assert.deepEqual(cachedBatch, persistedBatch);
+      const otherTaste = { ...created.profile, genres: ['Crime'], platforms: ['disney'] };
+      assert.deepEqual(await restarted.candidates(otherTaste, 'movie', 'japanese'), persistedBatch);
+      assert.equal(refreshRequests.length, 0);
+    } finally {
+      finishRefresh();
+    }
+    now = new Date(now.getTime() + 24 * 60 * 60_000);
+    const refreshed = await restarted.candidates(created.profile, 'movie', 'japanese');
+    assert.notEqual(refreshed.revision, initialBatch.revision);
+    assert.equal(refreshRequests.filter(url => url.pathname === '/3/discover/movie').length, 2);
     const backupDir=join(directory,'backups');
     run(['scripts/backup.mjs'],{DATABASE_URL:databaseUrl,BACKUP_DIR:backupDir});
     const {readdirSync}=await import('node:fs');

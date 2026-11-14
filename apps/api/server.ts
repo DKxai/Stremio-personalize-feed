@@ -1,4 +1,4 @@
-import Fastify, { LogController, type FastifyRequest } from 'fastify';
+import Fastify, { LogController, type FastifyReply, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { timingSafeEqual } from 'node:crypto';
@@ -101,7 +101,7 @@ export async function buildServer(db: PrismaClient, config: Config, metadata: Me
 
   app.get('/health', async () => {
     await db.$queryRaw`SELECT 1`;
-    return { status: 'ok', version: '0.4.0', metadata: library.mode, feedReady: library.mode === 'tmdb', storage: config.storageMode };
+    return { status: 'ok', version: '0.4.1', metadata: library.mode, feedReady: library.mode === 'tmdb', storage: config.storageMode };
   });
   app.get('/', async (_request, reply) => reply.redirect('/configure'));
   app.get('/configure', async (_request, reply) => reply.type('text/html').send(configureHtml));
@@ -185,8 +185,14 @@ export async function buildServer(db: PrismaClient, config: Config, metadata: Me
     const result = await addon.get('catalog', params.type, params.id, { ...query, ...(query.genre ? { genre: query.genre } : {}) });
     return result;
   };
-  app.get<{ Params: CatalogParams }>('/:token/catalog/:type/:id.json', async r => catalogHandler(r.params));
-  app.get<{ Params: CatalogParams }>('/:token/catalog/:type/:id/:extra.json', async r => catalogHandler({ ...r.params, extra: rawExtra(r) }));
+  const serveCatalog = async (request: FastifyRequest<{ Params: CatalogParams }>, reply: FastifyReply) => {
+    const started = performance.now();
+    const catalog = await catalogHandler({ ...request.params, extra: request.params.extra ? rawExtra(request) : undefined });
+    reply.header('Server-Timing', `catalog;dur=${(performance.now() - started).toFixed(1)}`);
+    return catalog;
+  };
+  app.get<{ Params: CatalogParams }>('/:token/catalog/:type/:id.json', serveCatalog);
+  app.get<{ Params: CatalogParams }>('/:token/catalog/:type/:id/:extra.json', serveCatalog);
   type EventParams = { token: string; type: string; id: string; extra: string };
   app.get<{ Params: EventParams }>('/:token/library/:type/:id/:extra.json', { exposeHeadRoute: false, config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async request => {
     const { token, type, id, extra } = request.params;

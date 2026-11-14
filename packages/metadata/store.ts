@@ -39,9 +39,21 @@ export class MetadataStore {
   }
   async prune(): Promise<void> {
     await this.db.externalCache.deleteMany({ where: { expiresAt: { lte: new Date() } } });
-    const upstream = await this.db.externalCache.findMany({ select: { key: true }, orderBy: { updatedAt: 'desc' }, skip: 500 });
-    for (let i = 0; i < upstream.length; i += 200) await this.db.externalCache.deleteMany({ where: { key: { in: upstream.slice(i, i + 200).map(r => r.key) } } });
+    await this.pruneCache('tmdb:', 500);
+    await this.pruneCache('catalog:', 150);
     const titles = await this.db.movieMetadata.findMany({ select: { key: true }, orderBy: { updatedAt: 'desc' }, skip: 2000 });
     for (let i = 0; i < titles.length; i += 200) await this.db.movieMetadata.deleteMany({ where: { key: { in: titles.slice(i, i + 200).map(r => r.key) } } });
   }
+  private async pruneCache(prefix: string, keep: number) {
+    const expired = await this.db.externalCache.findMany({
+      where: { key: { startsWith: prefix } },
+      select: { key: true },
+      orderBy: [{ updatedAt: 'desc' }, { key: 'asc' }],
+      skip: keep,
+    });
+    for (let i = 0; i < expired.length; i += 200) {
+      await this.db.externalCache.deleteMany({ where: { key: { in: expired.slice(i, i + 200).map(row => row.key) } } });
+    }
+  }
+
 }

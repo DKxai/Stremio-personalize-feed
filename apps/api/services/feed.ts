@@ -5,22 +5,69 @@ import { RecommendationEngine } from '../../../packages/recommendation/engine.js
 import { PAGE_SIZE, type CatalogId } from '../../../packages/recommendation/catalogs.js';
 import type { CatalogQuery } from '../../../packages/recommendation/catalog-query.js';
 import type { CommunitySignals } from '../../../packages/recommendation/community.js';
+import { TtlCache } from '../../../packages/shared/cache.js';
+import { UpstreamUnavailable } from '../../../packages/metadata/tmdb.js';
+
+interface ProfileSignals {
+  seeds: Title[];
+  community: ReadonlyMap<string, number> | undefined;
+}
 
 export class FeedService {
   private readonly engine = new RecommendationEngine();
+  private readonly signals = new TtlCache<ProfileSignals>(100, 300_000);
+  private readonly loadingSignals = new Map<string, Promise<ProfileSignals>>();
+
   constructor(readonly library: LibrarySource, private readonly community?: CommunitySignals) {}
   async recommend(profile: Profile, type: MediaType, catalog: CatalogId, query: CatalogQuery = { skip: 0 }): Promise<Title[]> {
     if (catalog === 'because' && !profile.favorites.length && !profile.likes.length && !profile.watched.length && !profile.started?.length && !profile.saved?.length) return [];
-    const seedIds = [...new Set([...profile.favorites, ...profile.likes.slice(0, 8), ...profile.watched.slice(0, 8), ...(profile.started ?? []).slice(0, 5), ...(profile.saved ?? []).slice(0, 5), ...profile.dislikes.slice(0, 4)])].slice(0, 30);
-    const region = feedPreferences(profile).region;
-    const [batch, resolved, community] = await Promise.all([
+    const [batch, signals] = await Promise.all([
       this.library.candidates(profile, type, catalog, query),
-      Promise.all(seedIds.map(id => this.library.resolve(id, undefined, region))),
-      this.community?.scores(profile),
+      this.profileSignals(profile),
     ]);
-    const seeds = resolved.filter((t): t is Title => Boolean(t));
-    return this.engine.recommend(query.genre ? { ...profile, genres: [query.genre] } : profile, type, catalog, batch.titles.filter(t => !query.genre || t.genres.includes(query.genre)), seeds, `${batch.revision}:${query.genre || 'all'}:${Math.floor(Date.now() / 300_000)}`, community);
+    return this.engine.recommend(
+      query.genre ? { ...profile, genres: [query.genre] } : profile,
+      type, catalog, batch.titles.filter(title => !query.genre || title.genres.includes(query.genre)),
+      signals.seeds, `${batch.revision}:${query.genre || 'all'}:${Math.floor(Date.now() / 300_000)}`, signals.community,
+    );
   }
+
+  private async profileSignals(profile: Profile) {
+    const key = `${profile.id}:${profile.version}`;
+    const cached = this.signals.get(key);
+    if (cached) return cached;
+    const pending = this.loadingSignals.get(key);
+    if (pending) return pending;
+
+    const seedIds = [...new Set([
+      ...profile.favorites, ...profile.likes.slice(0, 8), ...profile.watched.slice(0, 8),
+      ...(profile.started ?? []).slice(0, 5), ...(profile.saved ?? []).slice(0, 5),
+      ...profile.dislikes.slice(0, 4),
+    ])].slice(0, 30);
+    const region = feedPreferences(profile).region;
+    const task = (async () => {
+      const [results, community] = await Promise.all([
+        Promise.allSettled(seedIds.map(id => this.library.resolve(id, profile.itemTypes?.[id], region))),
+        this.community?.scores(profile),
+      ]);
+      const seeds: Title[] = [];
+      let incomplete = false;
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          if (result.value) seeds.push(result.value);
+        } else {
+          if (!(result.reason instanceof UpstreamUnavailable)) throw result.reason;
+          incomplete = true;
+        }
+      }
+      const signals = { seeds, community };
+      this.signals.set(key, signals, incomplete ? 30_000 : 300_000);
+      return signals;
+    })().finally(() => this.loadingSignals.delete(key));
+    this.loadingSignals.set(key, task);
+    return task;
+  }
+
   async page(profile: Profile, type: MediaType, catalog: CatalogId | 'search', query: CatalogQuery): Promise<Title[]> {
     const region = feedPreferences(profile).region;
     if (catalog === 'search') {

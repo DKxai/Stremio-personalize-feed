@@ -15,6 +15,11 @@ const names = (values: any[] = [], limit = 12): string[] => values.filter(v => t
 const validDate = (value: unknown) => typeof value === 'string' && Number.isFinite(releaseAge(value));
 const countryMatch = (title: Title, countries: string[]) => title.originCountries?.some(c => countries.includes(c));
 const providerMatches = (providerName: string, ids: string[]) => PLATFORMS.some(p => ids.includes(p.id) && (p.matches as readonly string[]).some(n => n.toLowerCase() === providerName.toLowerCase()));
+const SNAPSHOT_PREFIX = 'catalog:v1:';
+const REFRESH_INTERVAL = 30 * 60_000;
+const SNAPSHOT_MAX_AGE = 24 * 60 * 60_000;
+const RETRY_DELAY = 60_000;
+interface CatalogSnapshot { batch: CandidateBatch; refreshedAt: number }
 export interface CandidateBatch { titles: Title[]; revision: string; source: 'tmdb' | 'fixtures' }
 export interface LibrarySource {
   readonly mode: 'tmdb' | 'fixtures' | 'unconfigured';
@@ -25,7 +30,8 @@ export interface LibrarySource {
 
 export class LiveLibrary implements LibrarySource {
   readonly mode = 'tmdb' as const;
-  private readonly rows = new TtlCache<CandidateBatch>(100, 1_800_000);
+  private readonly rows = new TtlCache<CatalogSnapshot>(100, SNAPSHOT_MAX_AGE);
+  private readonly retry = new TtlCache<boolean>(100, RETRY_DELAY);
   private readonly pending = new Map<string, Promise<CandidateBatch>>();
   constructor(private readonly client: TmdbClient, private readonly store?: MetadataStore, private readonly now: () => Date = () => new Date()) {}
 
@@ -84,7 +90,7 @@ export class LiveLibrary implements LibrarySource {
       const title = await this.resolve(query, type, region); return title ? [title] : [];
     }
     const data = await this.client.get(type ? `search/${type === 'movie' ? 'movie' : 'tv'}` : 'search/multi', { query, include_adult: 'false', page });
-    const rows = (data.results || []).filter((r: any) => r.adult !== true && (type || ['movie', 'tv'].includes(r.media_type))).slice(0, type ? 20 : 12);
+    const rows = (data?.results || []).filter((r: any) => r.adult !== true && (type || ['movie', 'tv'].includes(r.media_type))).slice(0, type ? 20 : 12);
     const titles = await Promise.all(rows.map((r: any) => this.detail(r.id, type || (r.media_type === 'movie' ? 'movie' : 'series'), region)));
     // Keep TMDB relevance and alias matching, including Japanese/Korean/Chinese names.
     return titles.filter((t): t is Title => Boolean(t));
@@ -92,18 +98,49 @@ export class LiveLibrary implements LibrarySource {
 
   async candidates(profile: Profile, type: MediaType, catalog: CatalogId, filters: Pick<CatalogQuery, 'genre'> = {}): Promise<CandidateBatch> {
     const prefs = feedPreferences(profile);
-    const key = JSON.stringify([dateOnly(this.now()), type, catalog, prefs.region, [...prefs.platforms].sort(), [...profile.genres].sort(), filters.genre]);
-    const cached = this.rows.get(key);
-    if (cached) return cached;
-    const pending = this.pending.get(key);
-    if (pending) return pending;
-    const task = this.load(profile, type, catalog, filters).then(batch => { this.rows.set(key, batch); return batch; }).finally(() => this.pending.delete(key));
-    this.pending.set(key, task);
-    return task;
+    const pool = catalog === 'because' || catalog === 'top' ? 'recommended' : catalog;
+    const usesPlatforms = catalog === 'trending' || catalog.startsWith('new');
+    const usesGenres = ['recommended', 'because', 'genres', 'top', 'gems'].includes(catalog) && !filters.genre;
+    const key = SNAPSHOT_PREFIX + JSON.stringify([
+      type, pool, prefs.region, usesPlatforms ? [...prefs.platforms].sort() : [],
+      usesGenres ? [...profile.genres].sort() : [], filters.genre,
+    ]);
+    let cached = this.rows.get(key);
+    if (!cached && this.store) {
+      const snapshot = await this.store.read(key) as Partial<CatalogSnapshot> | undefined;
+      if (typeof snapshot?.refreshedAt === 'number' && Array.isArray(snapshot.batch?.titles)) {
+        cached = snapshot as CatalogSnapshot;
+        this.rows.set(key, cached);
+      }
+    }
+    const age = cached ? this.now().getTime() - cached.refreshedAt : Infinity;
+    const usable = age >= 0 && age < SNAPSHOT_MAX_AGE ? cached : undefined;
+    if (usable && (age < REFRESH_INTERVAL || this.retry.get(key))) return usable.batch;
+
+    let task = this.pending.get(key);
+    if (!task) {
+      task = this.load(profile, type, pool, filters).then(async batch => {
+        const refreshedAt = this.now().getTime();
+        const snapshot = { batch: { ...batch, revision: String(refreshedAt) }, refreshedAt };
+        this.rows.set(key, snapshot);
+        // Keep the memory cache usable if the optional SQLite cache cannot write.
+        await this.store?.write(key, snapshot, SNAPSHOT_MAX_AGE).catch(() => undefined);
+        return snapshot.batch;
+      }).catch(error => {
+        if (usable) this.retry.set(key, true);
+        throw error;
+      }).finally(() => this.pending.delete(key));
+      this.pending.set(key, task);
+    }
+    if (!usable) return task;
+    // A client opening Home receives the last catalog while one refresh runs.
+    void task.catch(() => {});
+    return usable.batch;
   }
 
   private async load(profile: Profile, type: MediaType, catalog: CatalogId, filters: Pick<CatalogQuery, 'genre'> = {}): Promise<CandidateBatch> {
     const prefs = feedPreferences(profile);
+    const genres = [...profile.genres].sort();
     const media = type === 'movie' ? 'movie' : 'tv';
     const today = dateOnly(this.now());
     const window = releaseWindow(catalog);
@@ -112,7 +149,7 @@ export class LiveLibrary implements LibrarySource {
     if (type === 'series') common.without_genres = '10763,10767,10764';
     common[type === 'movie' ? 'primary_release_date.lte' : 'first_air_date.lte'] = today;
     common[type === 'movie' ? 'primary_release_date.gte' : 'first_air_date.gte'] = daysAgo(3 * 365, this.now());
-    if (platformRow) {
+    if (platformRow && catalog !== 'trending') {
       const providers = await this.client.get(`watch/providers/${media}`, { watch_region: prefs.region }, 86_400_000);
       const ids = (providers.results || []).filter((p: any) => typeof p.provider_name === 'string' && providerMatches(p.provider_name, prefs.platforms)).map((p: any) => p.provider_id);
       if (!ids.length) return { titles: [], revision: today, source: 'tmdb' };
@@ -126,7 +163,7 @@ export class LiveLibrary implements LibrarySource {
     if (catalog === 'chinese') common.with_origin_country = 'CN|TW|HK';
     if (catalog === 'japanese') { common.with_origin_country = 'JP'; common.without_genres = [common.without_genres, '16'].filter(Boolean).join(','); }
     if (catalog.startsWith('anime')) { common.with_genres = 16; common.with_origin_country = 'JP'; }
-    if (catalog === 'genres' && profile.genres.length) common.with_genres = profile.genres.map(g => type === 'movie' ? genreIds[g] : tvGenres(g)).filter(Boolean).join('|');
+    if (catalog === 'genres' && profile.genres.length) common.with_genres = genres.map(g => type === 'movie' ? genreIds[g] : tvGenres(g)).filter(Boolean).join('|');
     if (filters.genre) {
       const genre = type === 'movie' ? genreIds[filters.genre] : tvGenres(filters.genre);
       common.with_genres = catalog.startsWith('anime') && genre !== 16 ? `16,${genre}` : genre!;
@@ -141,7 +178,7 @@ export class LiveLibrary implements LibrarySource {
       if (['recommended', 'because', 'top', 'gems'].includes(catalog)) {
         requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: 'KR|CN|TW|HK|JP', page: 1 }));
         requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: 'JP', without_genres: [common.without_genres, '16'].filter(Boolean).join(','), page: 1 }));
-        const preferredGenres = (filters.genre ? [filters.genre] : profile.genres).map(g => type === 'movie' ? genreIds[g] : tvGenres(g)).filter(Boolean).join('|');
+        const preferredGenres = (filters.genre ? [filters.genre] : genres).map(g => type === 'movie' ? genreIds[g] : tvGenres(g)).filter(Boolean).join('|');
         if (preferredGenres) requests.push(this.client.get(`discover/${media}`, { ...common, with_genres: preferredGenres, page: 1 }));
         requests.push(this.client.get(`discover/${media}`, { ...common, with_genres: filters.genre ? `16,${type === 'movie' ? genreIds[filters.genre] : tvGenres(filters.genre)}` : 16, with_origin_country: 'JP', page: 1 }));
       }
