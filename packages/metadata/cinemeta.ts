@@ -7,7 +7,7 @@ export type MetadataProvider = (title: Title) => Promise<MetaDetail | null>;
 
 /** Cinemeta supplies live detail metadata and, crucially, series episode IDs. */
 export function createCinemetaProvider(fetcher: typeof fetch = fetch): MetadataProvider {
-  const cache = new TtlCache<MetaDetail>(200, 3_600_000);
+  const cache = new TtlCache<MetaDetail>(80, 3_600_000);
   const inFlight = new Map<string, Promise<MetaDetail | null>>();
   return title => {
     const key = `${title.type}:${title.id}`;
@@ -24,7 +24,8 @@ export function createCinemetaProvider(fetcher: typeof fetch = fetch): MetadataP
         const data: unknown = await response.json();
         const meta = (data as { meta?: MetaDetail })?.meta;
         if (!meta || meta.id !== title.id || meta.type !== title.type || typeof meta.name !== 'string') throw new Error('Invalid metadata');
-        cache.set(key, meta);
+        // Keep large episode lists available for the current request without retaining them in RAM.
+        if ((meta.videos?.length ?? 0) <= 200) cache.set(key, meta);
         return meta;
       } catch {
         // Do not fabricate episode lists. Stremio's installed Cinemeta can resolve series too.

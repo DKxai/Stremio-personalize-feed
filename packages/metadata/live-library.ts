@@ -18,8 +18,39 @@ const providerMatches = (providerName: string, ids: string[]) => PLATFORMS.some(
 const SNAPSHOT_PREFIX = 'catalog:v1:';
 const REFRESH_INTERVAL = 30 * 60_000;
 const SNAPSHOT_MAX_AGE = 24 * 60 * 60_000;
+const MAX_BACKGROUND_REFRESHES = 2;
 const RETRY_DELAY = 60_000;
 interface CatalogSnapshot { batch: CandidateBatch; refreshedAt: number }
+// Keep only fields used to resolve IMDb IDs, rank titles and show availability.
+function compactDetail(detail: any) {
+  // Existing SQLite responses are decoded through this function on cache misses.
+  if (detail.compactVersion === 1) return detail;
+  const availability = detail['watch/providers'];
+  const providers = Object.fromEntries(Object.entries(availability?.results ?? {}).map(([region, value]) => {
+    const entry = value as { flatrate?: { provider_name: string }[]; link?: string };
+    return [region, { flatrate: entry.flatrate?.slice(0, 30).map(provider => ({ provider_name: provider.provider_name })), link: entry.link }];
+  }));
+  return {
+    compactVersion: 1,
+    imdb_id: detail.imdb_id,
+    external_ids: { imdb_id: detail.external_ids?.imdb_id },
+    title: detail.title, name: detail.name, original_title: detail.original_title, original_name: detail.original_name,
+    release_date: detail.release_date, first_air_date: detail.first_air_date, adult: detail.adult,
+    origin_country: detail.origin_country,
+    production_countries: detail.production_countries?.map((country: any) => ({ iso_3166_1: country.iso_3166_1 })),
+    genres: detail.genres?.map((genre: any) => ({ id: genre.id })),
+    original_language: detail.original_language, poster_path: detail.poster_path, overview: detail.overview,
+    vote_average: detail.vote_average, vote_count: detail.vote_count, popularity: detail.popularity,
+    credits: {
+      cast: names(detail.credits?.cast, 8).map(name => ({ name })),
+      crew: names(detail.credits?.crew?.filter((credit: any) => credit.job === 'Director'), 4)
+        .map(name => ({ name, job: 'Director' })),
+    },
+    keywords: { keywords: names(detail.keywords?.keywords || detail.keywords?.results, 15).map(name => ({ name })) },
+    'watch/providers': { results: providers },
+  };
+}
+
 export interface CandidateBatch { titles: Title[]; revision: string; source: 'tmdb' | 'fixtures' }
 export interface LibrarySource {
   readonly mode: 'tmdb' | 'fixtures' | 'unconfigured';
@@ -32,6 +63,7 @@ export class LiveLibrary implements LibrarySource {
   readonly mode = 'tmdb' as const;
   private readonly rows = new TtlCache<CatalogSnapshot>(100, SNAPSHOT_MAX_AGE);
   private readonly retry = new TtlCache<boolean>(100, RETRY_DELAY);
+  private refreshing = 0;
   private readonly pending = new Map<string, Promise<CandidateBatch>>();
   constructor(private readonly client: TmdbClient, private readonly store?: MetadataStore, private readonly now: () => Date = () => new Date()) {}
 
@@ -51,7 +83,7 @@ export class LiveLibrary implements LibrarySource {
 
   private async detail(id: number, type: MediaType, region: string): Promise<Title | undefined> {
     const media = type === 'movie' ? 'movie' : 'tv';
-    const d = await this.client.get(`${media}/${id}`, { append_to_response: 'external_ids,credits,keywords,watch/providers' }, 86_400_000);
+    const d = await this.client.get(`${media}/${id}`, { append_to_response: 'external_ids,credits,keywords,watch/providers' }, 86_400_000, compactDetail);
     if (!d) return undefined;
     const imdb = d.imdb_id || d.external_ids?.imdb_id;
     const releaseDate = type === 'movie' ? d.release_date : d.first_air_date;
@@ -119,6 +151,8 @@ export class LiveLibrary implements LibrarySource {
 
     let task = this.pending.get(key);
     if (!task) {
+      if (usable && this.refreshing >= MAX_BACKGROUND_REFRESHES) return usable.batch;
+      if (usable) this.refreshing++;
       task = this.load(profile, type, pool, filters).then(async batch => {
         const refreshedAt = this.now().getTime();
         const snapshot = { batch: { ...batch, revision: String(refreshedAt) }, refreshedAt };
@@ -129,7 +163,10 @@ export class LiveLibrary implements LibrarySource {
       }).catch(error => {
         if (usable) this.retry.set(key, true);
         throw error;
-      }).finally(() => this.pending.delete(key));
+      }).finally(() => {
+        this.pending.delete(key);
+        if (usable) this.refreshing--;
+      });
       this.pending.set(key, task);
     }
     if (!usable) return task;
