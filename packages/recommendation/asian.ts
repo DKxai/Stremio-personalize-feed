@@ -25,7 +25,8 @@ export function matchesAsian(title: Title, catalog: CatalogId): boolean {
   if (!rule) return true;
   if (!title.originCountries?.some(c => rule.countries.includes(c))) return false;
   if (rule.excluded?.some(g => title.genres.includes(g))) return false;
-  if (rule.animation && !title.genres.includes('Animation')) return false;
+  if (catalog === 'anime' && !title.isAnime) return false;
+  if (rule.animation && !title.genres.includes('Animation') && !(catalog === 'anime' && title.isAnime)) return false;
   if (rule.genres && !rule.genres.some(g => title.genres.includes(g))) return false;
   return true;
 }
