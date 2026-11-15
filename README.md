@@ -2,7 +2,7 @@
 
 Movie + Series + Anime, chạy bằng **Node.js 22, TypeScript, Fastify, Stremio Add-on SDK và Prisma / SQLite**. Không host phim, không cung cấp stream. Các Add-on phát nội dung hiện có vẫn dùng IMDb ID và episode ID từ Cinemeta.
 
-Bản **0.4** bổ sung Đã xem / Thư viện riêng, callback Stremio library/player, tìm kiếm Movie/Series và lọc Genre trong Discover. Bản 0.3 bổ sung catalog phim Nhật / J-Drama và ưu tiên Nhật trong profile mới. Bản 0.2 đã thay thư viện mẫu làm nguồn recommendation bằng **TMDB trực tiếp**, thêm xu hướng tuần, tác phẩm mới trong 90 ngày, phim Hàn, Trung và anime. Cần TMDB API Read Access Token của chủ server. **Thiếu token sẽ hiện trạng thái chưa cấu hình và trả 503 cho feed trực tiếp; không âm thầm dùng phim cũ làm dữ liệu mới.** `DEMO_MODE=true` chỉ dành cho demo offline, với các mục xu hướng/mới để trống.
+Bản **0.5** bổ sung Home 4 vùng, hub Âu-Mỹ/vibe/Asian và ranking hybrid + regional quota. Bản **0.4** bổ sung Đã xem / Thư viện riêng, callback Stremio library/player, tìm kiếm Movie/Series và lọc Genre trong Discover. Bản 0.3 bổ sung catalog phim Nhật / J-Drama và ưu tiên Nhật trong profile mới. Bản 0.2 đã thay thư viện mẫu làm nguồn recommendation bằng **TMDB trực tiếp**, thêm xu hướng tuần, tác phẩm mới trong 90 ngày, phim Hàn, Trung và anime. Cần TMDB API Read Access Token của chủ server. **Thiếu token sẽ hiện trạng thái chưa cấu hình và trả 503 cho feed trực tiếp; không âm thầm dùng phim cũ làm dữ liệu mới.** `DEMO_MODE=true` chỉ dành cho demo offline, với các mục xu hướng/mới để trống.
 
 ## Bật dữ liệu thật
 
@@ -14,29 +14,35 @@ Bản **0.4** bổ sung Đã xem / Thư viện riêng, callback Stremio library/
 
 Mặc định dùng **US** để gộp thư viện các dịch vụ quốc tế, đồng thời ưu tiên Hàn, Trung, Nhật và anime. Có thể chọn VN, KR, JP, TW, HK, SG, GB, AU, CA. Danh sách nền tảng theo khu vực có thể khác nhau. Không thay dữ liệu US vào kết quả VN nếu nền tảng không có dữ liệu tại VN.
 
-## Catalog
+## v0.5 — Home bốn vùng, chín hàng và gợi ý cân bằng
 
-16 nhóm × hai loại `movie` / `series` = **32 hàng Home/Discover**, cộng 2 catalog chỉ dành cho tìm kiếm = **34 khai báo trong manifest**. Stremio yêu cầu mỗi catalog có một loại, nên Movie và Series có các hàng riêng.
+**Tối ưu theo kế hoạch v0.5.** Stremio Home chỉ hiển thị **9 catalog × 2 loại Movie/Series = 18 hàng** và 2 catalog tìm kiếm, tổng cộng **20 khai báo trong manifest**. Các ID chuyên sâu và ID cũ vẫn được nhận ở URL catalog; menu `genre` trong Discover cho phép chọn nhánh cụ thể mà không làm Home quá dài.
 
-| ID | Nội dung | Quy tắc |
+| Vùng | ID Home | Danh mục và bộ lọc con |
 | --- | --- | --- |
-| `pf-recommended` | Dành cho bạn | Sở thích, favorites/likes, độ mới, quốc gia, anime và tín hiệu cộng tác khi đủ dữ liệu |
-| `pf-trending` | Xu hướng tuần này · Các nền tảng | TMDB weekly trending, giao với nền tảng đăng ký đang có phim tại khu vực đã chọn |
-| `pf-new30` | Mới phát hành · 30 ngày qua | Tuổi tác phẩm 0–29 ngày, có trên nền tảng đã chọn |
-| `pf-new60` | Mới phát hành · 31–60 ngày | Tuổi tác phẩm 30–59 ngày, có trên nền tảng đã chọn |
-| `pf-new90` | Mới phát hành · 61–90 ngày | Tuổi tác phẩm 60–89 ngày, có trên nền tảng đã chọn |
-| `pf-korean` | Phim Hàn dành cho bạn | Quốc gia nguồn KR |
-| `pf-chinese` | Phim Trung dành cho bạn | Quốc gia nguồn CN, TW hoặc HK |
-| `pf-japanese` | Phim Nhật dành cho bạn | Điện ảnh và J-Drama từ JP; anime có hàng riêng |
-| `pf-anime` | Thế giới Anime | Animation từ Nhật Bản |
-| `pf-anime-new` | Anime mới · 90 ngày qua | Anime có tuổi tác phẩm 0–89 ngày |
-| `pf-saved` | Thư viện & Yêu thích | Saved từ Stremio, favorites và likes; không trộn với dislike |
-| `pf-watched` | Danh sách Đã xem | Tác phẩm đã xem và series đã xem một số tập, ghi rõ số tập |
-| `pf-search` | Tìm kiếm | Movie và Series riêng; TMDB relevance, tên đa ngôn ngữ hoặc IMDb ID, gồm cả phim đã xem |
-| `pf-because` | Vì bạn đã xem | Tương đồng với manual watched/favorites/likes |
-| `pf-genres` | Thể loại yêu thích | Phù hợp genres đã chọn |
-| `pf-gems` | Đáng xem, ít người biết | Tương đồng, chất lượng, độ phổ biến thấp |
-| `pf-top` | Lựa chọn hàng đầu | Mức phù hợp và điểm chất lượng được điều chỉnh theo số lượt đánh giá |
+| Cá nhân hóa | `pf-recommended` | Top Picks đa quốc gia; gu sâu, phim chất lượng và phim mới |
+| Cá nhân hóa | `pf-because-west` | Gợi ý từ phim Âu-Mỹ đã thích/xem (chỉ khi có seed Âu-Mỹ) |
+| Cá nhân hóa | `pf-because-asian` | Gợi ý từ phim châu Á đã thích/xem (chỉ khi có seed châu Á) |
+| Toàn cầu | `pf-trending` | TMDB trending / phát hành trong 30, 60, 90 ngày |
+| Âu-Mỹ | `pf-western-hub` | Action/espionage, prestige drama, crime/mafia, European cinema |
+| Mood | `pf-vibes` | Hack não, crime noir, cyberpunk, survival, feel-good, hidden gems |
+| Asian Hub | `pf-korean` | K-Drama/K-Movies, crime & thriller |
+| Asian Hub | `pf-chinese` | C-Drama/C-Movie, cổ trang/tiên hiệp theo genre/keyword proxy, Donghua |
+| Asian Hub | `pf-asian-jp-sea` | J-Drama live-action, Anime, Donghua, Việt Nam, Thái Lan, Indonesia |
+
+Khi chọn `extra.genre` là một tên nhóm chuyên sâu của hub, server chuyển sang pool có bộ lọc quốc gia + thể loại tương ứng. Chọn thể loại cơ bản vẫn lọc theo `Action`, `Drama`, v.v. Danh mục cũ như `pf-anime`, `pf-japanese`, `pf-saved`, `pf-watched`, `pf-new30`, `pf-because` và `pf-top` còn hoạt động qua URL đã cài. Lưu ý chọn danh mục trực tiếp có thể cần mở link URL hoặc trang /configure, do chúng không còn là hàng mặc định Home.
+
+### Thuật toán
+
+- **Implicit signals:** likes/favorites, watched, saved, started, số tập đã xem; suy giảm theo dấu thời gian có thật (half-life 45 ngày), không tự suy đoán thời lượng xem hay tỷ lệ hoàn thành của dữ liệu chưa có.
+- **Taste vector:** genre, cặp genre, TF–IDF keyword cục bộ, quốc gia, ngôn ngữ, đạo diễn/diễn viên lặp lại và năm phát hành; ghép hồ sơ cá nhân với ưu tiên đã chọn.
+- **Candidate sources:** discover TMDB theo vùng/genre, tối đa hai seed hồ sơ qua TMDB recommendations/similar, cộng điểm co-occurrence cộng đồng khi đủ người dùng. Đọc tối đa 40 metadata ứng viên mỗi lượt, không chạy các mô hình nặng.
+- **Hybrid rank + bounded MMR:** 40% collaborative, 35% content, 15% Bayesian quality và 10% freshness làm baseline; điều chỉnh cold-start và strategy của từng danh mục, chống lặp bằng MMR trong tập đầu 72.
+- **Dynamic regional quota:** trộn Tây/Á/quốc tế trong 40 đề xuất đầu. Khi ứng viên đủ, một vùng không vượt khoảng 60%, có phim chéo vùng và khoảng 10% khám phá; thiếu phim trong pool thì backfill theo relevance chứ không hiển thị số lượng giả.
+- **Dual-track seeds:** hai hàng Because You Watched dùng seed Âu-Mỹ và châu Á khác nhau, dựa trên đầu phim duy nhất thay vì tính từng tập như đầu phim riêng.
+- **Giải thích gợi ý:** khi có bằng chứng seed đủ rõ, metadata hiển thị nhãn ngắn cho người dùng.
+
+Đây là **kiến trúc lấy cảm hứng từ recommender đa tầng**, không phải mã hay mô hình độc quyền Netflix. Hiệu quả thực tế còn phụ thuộc số lượng tương tác người dùng, nguồn TMDB và client Stremio có gửi library/player event hay không. Nguồn TMDB trending không phải bảng xếp hạng Netflix chính thức.
 
 ### Ý nghĩa chính xác của “mới” và “xu hướng”
 
@@ -50,9 +56,9 @@ Mặc định dùng **US** để gộp thư viện các dịch vụ quốc tế,
 
 ## Recommendation và giới hạn tài nguyên
 
-Candidate generator tìm Movie/TV, genres, quốc gia, anime và dữ liệu tuần. Các pool được xen kẽ để phim Hàn, Trung, anime không bị loại hết bởi giới hạn request. Tối đa 40 TMDB title candidates cho một catalog; đây không phải toàn bộ thư viện phim. Titles thiếu IMDb mapping bị bỏ để giữ tương thích streaming Add-on.
+Candidate generator tìm Movie/TV, genres, quốc gia, anime, nội dung Âu-Mỹ, mood và dữ liệu tuần. Các pool được xen kẽ để phim Hàn, Trung, anime không bị loại hết bởi giới hạn request. Tối đa 40 TMDB title candidates cho một catalog; đây không phải toàn bộ thư viện phim. Titles thiếu IMDb mapping bị bỏ để giữ tương thích streaming Add-on.
 
-Ranking ổn định, có chiến lược riêng theo catalog: Jaccard genres/cast/directors/keywords, positive/negative affinity, độ mới, quốc gia yêu thích, anime, Bayesian rating và diversity penalty. Favorites, likes, saved, watched/started và dislikes được loại khỏi danh sách đề xuất; vẫn tìm được trong Search và các danh sách riêng. Watched là tín hiệu tương đồng yếu hơn Like, saved yếu hơn watched. Tín hiệu dislike cũng làm giảm độ tương đồng. Không dùng random.
+Ranking ổn định theo 4 giai đoạn: engagement decay, multi-vector taste, bounded multi-source candidates và Hybrid/MMR, rồi thêm regional quota cho Top Picks. Favorites, likes, saved, watched/started và dislikes được loại khỏi danh sách đề xuất; vẫn tìm được trong Search và các danh sách riêng. Watched là tín hiệu tương đồng yếu hơn Like, saved yếu hơn watched. Tín hiệu dislike cũng làm giảm độ tương đồng. Không dùng random.
 
 Hybrid item co-occurrence có trọng số nhỏ trong Recommended/Top/Gems: chỉ dùng ứng viên được **ít nhất ba profile khác nhau** có sở thích giao nhau cùng thích. Dữ liệu ít thì quay về content-based. Đây là baseline cộng tác, chưa phải mô hình học máy đã được đánh giá độ chính xác bằng hành vi thật.
 
