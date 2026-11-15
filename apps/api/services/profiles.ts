@@ -41,10 +41,6 @@ export class ProfileService {
     ]);
     if (!user) return null;
     const episodeCounts = Object.fromEntries(videos.map(v => [v.mediaId, v._count.videoId]));
-    const activityTimes: Record<string, string> = Object.fromEntries([
-      ...user.library.map(entry => [entry.mediaId, entry.updatedAt.toISOString()] as const),
-      ...user.interactions.map(entry => [entry.mediaId, entry.updatedAt.toISOString()] as const),
-    ]);
     const profile: Profile = {
       id: user.id, version: user.version,
       ...feedPreferences(JSON.parse(user.preferences?.feed ?? '{}')),
@@ -55,7 +51,7 @@ export class ProfileService {
       watched: user.library.filter(i => i.watched).map(i => i.mediaId),
       saved: user.library.filter(i => i.saved).map(i => i.mediaId),
       started: user.library.filter(i => !i.watched && episodeCounts[i.mediaId]).map(i => i.mediaId),
-      episodeCounts, activityTimes,
+      episodeCounts,
       itemTypes: Object.fromEntries(user.library.filter(i => ['movie','series'].includes(i.type)).map(i => [i.mediaId, i.type])) as Record<string, MediaType>,
       lastLibraryEventAt: user.lastLibraryEventAt?.toISOString() ?? null,
       lastPlayerEventAt: user.lastPlayerEventAt?.toISOString() ?? null,

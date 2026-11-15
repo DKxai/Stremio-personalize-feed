@@ -6,8 +6,6 @@ import type { MetadataStore } from './store.js';
 import { TITLES } from './fixtures.js';
 import type { CatalogQuery } from '../recommendation/catalog-query.js';
 import type { CatalogId } from '../recommendation/catalogs.js';
-import { ASIAN_FILTERS, matchesAsian } from '../recommendation/asian.js';
-import { WESTERN_VIBES, matchesWesternVibe } from '../recommendation/western.js';
 import { dateOnly, daysAgo, inReleaseWindow, releaseWindow, releaseAge, recommendationDay } from '../recommendation/dates.js';
 
 const genreIds: Record<string, number> = { Action: 28, Adventure: 12, Animation: 16, Comedy: 35, Crime: 80, Documentary: 99, Drama: 18, Family: 10751, Fantasy: 14, History: 36, Horror: 27, Music: 10402, Mystery: 9648, Romance: 10749, 'Sci-Fi': 878, Thriller: 53, War: 10752, Western: 37 };
@@ -132,18 +130,15 @@ export class LiveLibrary implements LibrarySource {
 
   async candidates(profile: Profile, type: MediaType, catalog: CatalogId, filters: Pick<CatalogQuery, 'genre'> = {}): Promise<CandidateBatch> {
     const prefs = feedPreferences(profile);
-    const pool = ['because','because-2','because-west','because-asian','top','micro'].includes(catalog) ? 'recommended' : catalog;
+    const pool = catalog === 'because' || catalog === 'top' ? 'recommended' : catalog;
     const usesOrigins = pool === 'recommended' || pool === 'gems';
     const origins = [...prefs.preferredOrigins].sort();
     const usesPlatforms = catalog === 'trending' || catalog.startsWith('new');
     const usesGenres = ['recommended', 'because', 'genres', 'top', 'gems'].includes(catalog) && !filters.genre;
-    const usesPersonalGraph = pool === 'recommended';
     const key = SNAPSHOT_PREFIX + JSON.stringify([
       type, pool, prefs.region, usesPlatforms ? [...prefs.platforms].sort() : [],
       usesGenres ? [...profile.genres].sort() : [], filters.genre,
       usesOrigins ? origins : [],
-      // Neighbors are specific to a user's history; never share them across profiles.
-      usesPersonalGraph ? [profile.id,profile.version] : [],
     ]);
     let cached = this.rows.get(key);
     if (!cached && this.store) {
@@ -195,8 +190,7 @@ export class LiveLibrary implements LibrarySource {
     const common: Record<string, string | number> = { include_adult: 'false', sort_by: 'popularity.desc', page: 1 };
     if (type === 'series') common.without_genres = '10763,10767,10764';
     common[type === 'movie' ? 'primary_release_date.lte' : 'first_air_date.lte'] = today;
-    const broadArchive = ['recommended','western-hub','western-action','western-prestige','western-crime','european','vibes','gems','top'].includes(catalog) || catalog.startsWith('vibe-');
-    common[type === 'movie' ? 'primary_release_date.gte' : 'first_air_date.gte'] = daysAgo(broadArchive ? 25 * 365 : 5 * 365, this.now());
+    common[type === 'movie' ? 'primary_release_date.gte' : 'first_air_date.gte'] = daysAgo(3 * 365, this.now());
     if (platformRow && catalog !== 'trending') {
       const providers = await this.client.get(`watch/providers/${media}`, { watch_region: prefs.region }, 86_400_000);
       const ids = (providers.results || []).filter((p: any) => typeof p.provider_name === 'string' && providerMatches(p.provider_name, prefs.platforms)).map((p: any) => p.provider_id);
@@ -207,17 +201,6 @@ export class LiveLibrary implements LibrarySource {
       common[type === 'movie' ? 'primary_release_date.gte' : 'first_air_date.gte'] = daysAgo(window[1], this.now());
       common[type === 'movie' ? 'primary_release_date.lte' : 'first_air_date.lte'] = daysAgo(window[0], this.now());
     }
-    const regional = ASIAN_FILTERS[catalog] ?? WESTERN_VIBES[catalog];
-    if (regional?.countries?.length) common.with_origin_country = regional.countries.join('|');
-    if (regional?.genres?.length) {
-      const genresForType = regional.genres.map(g => type === 'movie' ? genreIds[g] : tvGenres(g)).filter(Boolean);
-      if (genresForType.length) common.with_genres = genresForType.join('|');
-    }
-    const excluded = ASIAN_FILTERS[catalog]?.excluded ?? WESTERN_VIBES[catalog]?.exclude;
-    if (excluded?.length) {
-      const excludeIds = excluded.map(g => type === 'movie' ? genreIds[g] : tvGenres(g)).filter(Boolean);
-      common.without_genres = [common.without_genres,...excludeIds].filter(Boolean).join(',');
-    }
     if (catalog === 'korean') common.with_origin_country = 'KR';
     if (catalog === 'chinese') common.with_origin_country = 'CN|TW|HK';
     if (catalog === 'japanese') { common.with_origin_country = 'JP'; common.without_genres = [common.without_genres, '16'].filter(Boolean).join(','); }
@@ -225,7 +208,7 @@ export class LiveLibrary implements LibrarySource {
     if (catalog === 'genres' && profile.genres.length) common.with_genres = genres.map(g => type === 'movie' ? genreIds[g] : tvGenres(g)).filter(Boolean).join('|');
     if (filters.genre) {
       const genre = type === 'movie' ? genreIds[filters.genre] : tvGenres(filters.genre);
-      common.with_genres = [common.with_genres,genre].filter(Boolean).join(',');
+      common.with_genres = catalog.startsWith('anime') && genre !== 16 ? `16,${genre}` : genre!;
     }
     if (catalog === 'gems') { common['vote_count.gte'] = 20; common['vote_average.gte'] = 6; }
     const requests: Promise<any>[] = [];
@@ -256,41 +239,14 @@ export class LiveLibrary implements LibrarySource {
         requests.push(this.client.get(`discover/${media}`, { ...common, with_genres: filters.genre ? `16,${type === 'movie' ? genreIds[filters.genre] : tvGenres(filters.genre)}` : 16, with_origin_country: 'JP', page: 1 }));
       }
     }
-    // Bounded multi-seed TMDB recommendation and similar-item graph: 2 anchors / 4 calls maximum.
-    const neighborScores = new Map<number,{score:number;seeds:string[]}>();
-    const neighborPages: any[] = [];
-    if (catalog === 'recommended') {
-      const seedIds = [...new Set([...profile.favorites,...profile.likes.slice(0,2),...profile.watched.slice(0,2)])].slice(0,2);
-      const known = await Promise.allSettled(seedIds.map(id => this.resolve(id,profile.itemTypes?.[id],prefs.region)));
-      const anchors = known.flatMap(result => result.status === 'fulfilled' && result.value?.type === type && result.value.tmdbId ? [result.value] : []);
-      const edges = anchors.flatMap((anchor,seedIndex) => [
-        { anchor,seedIndex,path:media+'/'+anchor.tmdbId+'/recommendations',strength:1 },
-        { anchor,seedIndex,path:media+'/'+anchor.tmdbId+'/similar',strength:0.45 },
-      ]);
-      const responses = await Promise.allSettled(edges.map(e=>this.client.get(e.path,{page:1},3_600_000)));
-      for(let i=0;i<responses.length;i++) {
-        const response=responses[i]!,edge=edges[i]!;
-        if(response.status!=='fulfilled')continue;
-        neighborPages.push(response.value);
-        for(const [rank,row] of (response.value?.results ?? []).entries()) {
-          if(!Number.isInteger(row?.id) || row.adult === true)continue;
-          const value=edge.strength*(1-edge.seedIndex*0.25)/Math.log2(rank+2);
-          const record=neighborScores.get(row.id) ?? {score:0,seeds:[]};
-          record.score+=value;
-          if(!record.seeds.includes(edge.anchor.name))record.seeds.push(edge.anchor.name);
-          neighborScores.set(row.id,record);
-        }
-      }
-    }
     const pages = await Promise.all(requests);
-    // Interleave pools so Asian, Western, and item-neighbor candidates survive the request budget.
+    // Interleave pools so Korean, Chinese and anime candidates survive the request budget.
     const interleaved: number[] = [];
     for (let i = 0; i < 20; i++) for (const page of pages) {
       const row = page.results?.[i];
       if (row && row.adult !== true && Number.isInteger(row.id)) interleaved.push(row.id);
     }
-    const neighbors=neighborPages.flatMap(page=>(page?.results ?? []).filter((row:any)=>row && row.adult!==true && Number.isInteger(row.id)).map((row:any)=>row.id));
-    const ids=[...new Set([...neighbors.slice(0,16),...interleaved])].slice(0,40);
+    const ids = [...new Set(interleaved)].slice(0, 40);
     const titles = (await Promise.all(ids.map(id => this.detail(id, type, prefs.region)))).filter((t): t is Title => Boolean(t));
     const filtered = titles.filter(t => !window || inReleaseWindow(t.releaseDate, ...window, this.now()))
       .filter(t => !platformRow || t.providers?.some(name => providerMatches(name, prefs.platforms)))
@@ -298,16 +254,9 @@ export class LiveLibrary implements LibrarySource {
       .filter(t => catalog !== 'chinese' || countryMatch(t, ['CN', 'TW', 'HK']))
       .filter(t => catalog !== 'japanese' || (countryMatch(t, ['JP']) && !t.genres.includes('Animation')))
       .filter(t => !catalog.startsWith('anime') || t.isAnime)
-      .filter(t => matchesAsian(t,catalog) && matchesWesternVibe(t,catalog))
       .filter(t => !filters.genre || t.genres.includes(filters.genre));
     return {
-      titles: filtered.map(t => {
-        const evidence = t.tmdbId ? neighborScores.get(t.tmdbId) : undefined;
-        return { ...t,
-          ...(catalog === 'trending' ? { weeklyTrend:1-ids.indexOf(t.tmdbId!)/Math.max(1,ids.length) } : {}),
-          ...(evidence ? { collabScore:evidence.score, matchedSeeds:evidence.seeds.slice(0,2) } : {}),
-        };
-      }),
+      titles: filtered.map(t => catalog === 'trending' ? { ...t, weeklyTrend: 1 - ids.indexOf(t.tmdbId!) / Math.max(1, ids.length) } : t),
       revision: `${today}:${Math.floor(this.now().getTime() / 1_800_000)}`, source: 'tmdb',
     };
   }

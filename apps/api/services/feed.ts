@@ -6,7 +6,6 @@ import { PAGE_SIZE, type CatalogId } from '../../../packages/recommendation/cata
 import type { CatalogQuery } from '../../../packages/recommendation/catalog-query.js';
 import type { CommunitySignals } from '../../../packages/recommendation/community.js';
 import { TtlCache } from '../../../packages/shared/cache.js';
-import { resolveHubChoice, isGenreFilter } from '../../../packages/recommendation/hubs.js';
 import { UpstreamUnavailable } from '../../../packages/metadata/tmdb.js';
 
 interface ProfileSignals {
@@ -21,17 +20,15 @@ export class FeedService {
 
   constructor(readonly library: LibrarySource, private readonly community?: CommunitySignals) {}
   async recommend(profile: Profile, type: MediaType, catalog: CatalogId, query: CatalogQuery = { skip: 0 }): Promise<Title[]> {
-    if (['because','because-2','because-west','because-asian'].includes(catalog) && !profile.favorites.length && !profile.likes.length && !profile.watched.length && !profile.started?.length && !profile.saved?.length) return [];
-    const targetCatalog = resolveHubChoice(catalog, query.genre);
-    const genre = isGenreFilter(query.genre) ? query.genre : undefined;
+    if (catalog === 'because' && !profile.favorites.length && !profile.likes.length && !profile.watched.length && !profile.started?.length && !profile.saved?.length) return [];
     const [batch, signals] = await Promise.all([
-      this.library.candidates(profile, type, targetCatalog, { genre }),
+      this.library.candidates(profile, type, catalog, query),
       this.profileSignals(profile),
     ]);
     return this.engine.recommend(
-      genre ? { ...profile, genres: [genre] } : profile,
-      type, targetCatalog, batch.titles.filter(title => !genre || title.genres.includes(genre)),
-      signals.seeds, `${batch.revision}:${genre || 'all'}:${Math.floor(Date.now() / 300_000)}`, signals.community,
+      query.genre ? { ...profile, genres: [query.genre] } : profile,
+      type, catalog, batch.titles.filter(title => !query.genre || title.genres.includes(query.genre)),
+      signals.seeds, `${batch.revision}:${query.genre || 'all'}:${Math.floor(Date.now() / 300_000)}`, signals.community,
     );
   }
 

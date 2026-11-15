@@ -25,9 +25,6 @@ export interface Title {
   weeklyTrend?: number;
   source?: 'tmdb' | 'fixtures';
   activityNote?: string;
-  /** Lightweight item-neighbor signal from TMDB seed recommendations. */
-  collabScore?: number;
-  matchedSeeds?: string[];
 }
 
 export interface Profile extends Partial<FeedPreferences> {
@@ -44,6 +41,4 @@ export interface Profile extends Partial<FeedPreferences> {
   itemTypes?: Record<string, MediaType>;
   lastLibraryEventAt?: string | null;
   lastPlayerEventAt?: string | null;
-  /** Existing SQLite event timestamps, not inferred playback completion. */
-  activityTimes?: Record<string, string>;
 }

@@ -11,7 +11,7 @@ export const PLATFORMS = [
   { id: 'wetv', name: 'WeTV', matches: ['WeTV'] },
 ] as const;
 export const REGIONS = ['US', 'VN', 'KR', 'JP', 'TW', 'HK', 'SG', 'GB', 'AU', 'CA'] as const;
-export const ORIGINS = ['KR', 'CN', 'TW', 'HK', 'JP', 'VN', 'TH', 'ID', 'MY', 'PH', 'SG', 'US'] as const;
+export const ORIGINS = ['KR', 'CN', 'TW', 'HK', 'JP', 'US'] as const;
 export const GENRES = ['Action', 'Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Family', 'Fantasy', 'History', 'Horror', 'Music', 'Mystery', 'Romance', 'Sci-Fi', 'Thriller', 'War', 'Western'] as const;
 export interface FeedPreferences { region: string; platforms: string[]; preferredOrigins: string[]; preferAnime: boolean; syncLibrary: boolean; syncPlayback: boolean }
 export const DEFAULT_FEED: FeedPreferences = {
