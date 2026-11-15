@@ -9,7 +9,7 @@ export function createManifest(configured = false, preferences: Partial<FeedPref
   const event = (name: string) => ({ name, types: ['movie', 'series'], idPrefixes: ['tt'] });
   const skip = { name: 'skip' as const, isRequired: false };
   return {
-    id: 'community.dkxai.personalizedfeed', version: '0.4.2', name: 'Personalized Feed',
+    id: 'community.dkxai.personalizedfeed', version: '0.4.3', name: 'Personalized Feed',
     description: 'Feed cá nhân: Nhật, Hàn, Trung, Anime, xu hướng tuần, phát hành trong 90 ngày; thư viện và danh sách Đã xem. TMDB / JustWatch.',
     types: ['movie', 'series'],
     resources: ['catalog', event('meta'), ...(configured && prefs.syncLibrary ? [event('library')] : []), ...(configured && prefs.syncPlayback ? [event('player')] : [])],

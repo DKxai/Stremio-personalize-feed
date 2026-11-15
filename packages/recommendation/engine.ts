@@ -1,7 +1,7 @@
 import type { Profile, Title, MediaType } from '../shared/types.js';
 import { TtlCache } from '../shared/cache.js';
 import { feedPreferences } from '../shared/preferences.js';
-import { dateOnly, releaseAge, releaseWindow } from './dates.js';
+import { dateOnly, recommendationDay, releaseAge, releaseWindow } from './dates.js';
 import type { CatalogId } from './catalogs.js';
 
 const overlap = (left: ReadonlySet<string>, right: ReadonlySet<string>): number => {
@@ -30,13 +30,30 @@ function bestMatch(candidate: Features, seeds: Features[]): number {
   return best;
 }
 
+const rotatingCatalogs = new Set<CatalogId>(['recommended', 'japanese', 'korean', 'chinese', 'anime', 'because', 'gems']);
+const DISCOVERY_POSITIONS = [2, 5, 7];
+
+function rotateDiscoveries(titles: Title[], day: number): Title[] {
+  // Pull from below the first screen, in relevance order, with a quality floor.
+  const discovery = titles.slice(8).filter(title => title.quality >= 0.64).slice(0, 24);
+  const count = Math.min(DISCOVERY_POSITIONS.length, Math.floor(discovery.length / 2));
+  if (!count) return titles;
+  const start = (day * count) % discovery.length;
+  const picks = Array.from({ length: count }, (_, offset) => discovery[(start + offset) % discovery.length]!);
+  const picked = new Set(picks.map(title => title.id));
+  const result = titles.filter(title => !picked.has(title.id));
+  for (const [index, title] of picks.entries()) result.splice(DISCOVERY_POSITIONS[index]!, 0, title);
+  return result;
+}
+
 export class RecommendationEngine {
   private readonly cache = new TtlCache<Title[]>();
   constructor(private readonly titles: readonly Title[] = [], private readonly now: () => Date = () => new Date()) {}
 
   recommend(profile: Profile, type: MediaType, catalog: CatalogId, candidates = this.titles, seeds = this.titles, revision = 'fixtures', community: ReadonlyMap<string, number> = new Map()): Title[] {
     const now = this.now();
-    const key = `${profile.id}:${profile.version}:${type}:${catalog}:${dateOnly(now)}:${revision}`;
+    const day = recommendationDay(now);
+    const key = `${profile.id}:${profile.version}:${type}:${catalog}:${dateOnly(now)}:${day}:${revision}`;
     const cached = this.cache.get(key);
     if (cached) return cached;
 
@@ -84,6 +101,7 @@ export class RecommendationEngine {
           case 'gems': score = 0.65 * match + 0.25 * title.quality + 0.1 * (1 - title.popularity); break;
           case 'trending': score = 0.8 * (title.weeklyTrend ?? 0) + 0.2 * match; break;
           case 'new30': case 'new60': case 'new90': case 'anime-new': score = 0.55 * match + 0.3 * title.quality + 0.15 * title.popularity; break;
+          case 'recommended': score = 0.65 * match + 0.30 * title.quality + 0.05 * title.popularity; break;
           case 'top': score = 0.65 * match + 0.35 * title.quality; break;
           default: score = 0.75 * match + 0.15 * title.quality + 0.10 * title.popularity;
         }
@@ -91,7 +109,9 @@ export class RecommendationEngine {
         const origin = title.originCountries?.some(c => prefs.preferredOrigins.includes(c)) ? 1 : 0;
         const anime = prefs.preferAnime && title.isAnime ? 1 : 0;
         // Keep weekly trend ordering dominant. Other rows favor recent Asian content.
-        if (catalog !== 'trending') score += 0.25 * freshness + 0.14 * origin + 0.1 * anime;
+        const personalFreshness = Number.isFinite(age) ? Math.max(0, 1 - age / 365) : 0;
+        if (catalog === 'recommended') score += 0.22 * personalFreshness + 0.14 * origin + 0.1 * anime;
+        else if (catalog !== 'trending') score += 0.25 * freshness + 0.14 * origin + 0.1 * anime;
         if (['recommended', 'top', 'gems'].includes(catalog)) score += 0.1 * (community.get(title.id) ?? 0);
         return { title, score, genres: candidate.genres, genre };
       })
@@ -125,7 +145,8 @@ export class RecommendationEngine {
         if (recentGenres.length > 4) recentGenres.shift();
       }
     }
-    this.cache.set(key, result);
-    return result;
+    const output = rotatingCatalogs.has(catalog) ? rotateDiscoveries(result, day) : result;
+    this.cache.set(key, output);
+    return output;
   }
 }

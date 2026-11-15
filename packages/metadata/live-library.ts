@@ -6,7 +6,7 @@ import type { MetadataStore } from './store.js';
 import { TITLES } from './fixtures.js';
 import type { CatalogQuery } from '../recommendation/catalog-query.js';
 import type { CatalogId } from '../recommendation/catalogs.js';
-import { dateOnly, daysAgo, inReleaseWindow, releaseWindow, releaseAge } from '../recommendation/dates.js';
+import { dateOnly, daysAgo, inReleaseWindow, releaseWindow, releaseAge, recommendationDay } from '../recommendation/dates.js';
 
 const genreIds: Record<string, number> = { Action: 28, Adventure: 12, Animation: 16, Comedy: 35, Crime: 80, Documentary: 99, Drama: 18, Family: 10751, Fantasy: 14, History: 36, Horror: 27, Music: 10402, Mystery: 9648, Romance: 10749, 'Sci-Fi': 878, Thriller: 53, War: 10752, Western: 37 };
 const genreNames = Object.fromEntries(Object.entries(genreIds).map(([name, id]) => [id, name]));
@@ -179,7 +179,8 @@ export class LiveLibrary implements LibrarySource {
     const prefs = feedPreferences(profile);
     const genres = [...profile.genres].sort();
     const media = type === 'movie' ? 'movie' : 'tv';
-    const today = dateOnly(this.now());
+    const now = this.now();
+    const today = dateOnly(now);
     const window = releaseWindow(catalog);
     const platformRow = catalog === 'trending' || catalog.startsWith('new');
     const common: Record<string, string | number> = { include_adult: 'false', sort_by: 'popularity.desc', page: 1 };
@@ -211,7 +212,17 @@ export class LiveLibrary implements LibrarySource {
       // Real weekly TMDB ranks; availability is checked per title and selected territory below.
       requests.push(this.client.get(`trending/${media}/week`, { page: 1 }), this.client.get(`trending/${media}/week`, { page: 2 }));
     } else {
-      requests.push(this.client.get(`discover/${media}`, common), this.client.get(`discover/${media}`, { ...common, page: 2 }));
+      requests.push(this.client.get(`discover/${media}`, common));
+      const secondPage = catalog === 'recommended'
+        ? {
+          ...common,
+          [type === 'movie' ? 'primary_release_date.gte' : 'first_air_date.gte']: daysAgo(180, now),
+          sort_by: 'vote_average.desc',
+          'vote_count.gte': 20,
+          page: 1 + recommendationDay(now) % 3,
+        }
+        : { ...common, page: 2 };
+      requests.push(this.client.get(`discover/${media}`, secondPage));
       if (['recommended', 'because', 'top', 'gems'].includes(catalog)) {
         requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: 'KR|CN|TW|HK|JP', page: 1 }));
         requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: 'JP', without_genres: [common.without_genres, '16'].filter(Boolean).join(','), page: 1 }));

@@ -47,3 +47,26 @@ test('cache reuses a ranking only for the same profile and version', () => {
   const changed = engine.recommend({ ...p, version: 2, dislikes: [first[0]!.id] }, 'movie', 'recommended');
   assert(!changed.some(t => t.id === first[0]!.id));
 });
+
+test('Vietnam midnight rotates qualified discoveries into the first screen without losing strong matches', () => {
+  const template = TITLES.find(title => title.type === 'movie')!;
+  const titles = Array.from({ length: 30 }, (_, i) => ({
+    ...template,
+    id: 'tt' + (7_000_000 + i),
+    releaseDate: '2026-10-01',
+    genres: ['Drama'],
+    quality: 0.9 - i / 200,
+  }));
+  let now = new Date('2026-11-15T16:59:00Z');
+  const engine = new RecommendationEngine(titles, () => now);
+  const p = profile('rotation', ['Drama']);
+  const before = engine.recommend(p, 'movie', 'recommended');
+  assert.strictEqual(engine.recommend(p, 'movie', 'recommended'), before);
+  now = new Date('2026-11-15T17:01:00Z');
+  const after = engine.recommend(p, 'movie', 'recommended');
+  assert.deepEqual(after.slice(0, 2), before.slice(0, 2));
+  assert.equal(after.slice(0, 8).filter(title => !before.slice(0, 8).includes(title)).length, 3);
+  assert.equal(new Set(after.map(title => title.id)).size, titles.length);
+  const disliked = after[2]!;
+  assert(!engine.recommend({ ...p, version: 2, dislikes: [disliked.id] }, 'movie', 'recommended').includes(disliked));
+});

@@ -17,3 +17,8 @@ export function inReleaseWindow(date: string | undefined, minimum: number, maxim
 export function releaseWindow(catalog: string): [number, number] | null {
   return catalog === 'new30' ? [0, 29] : catalog === 'new60' ? [30, 59] : catalog === 'new90' ? [60, 89] : catalog === 'anime-new' ? [0, 89] : null;
 }
+
+// UTC+7 keeps the rotation aligned with midnight in Vietnam.
+export function recommendationDay(now: Date): number {
+  return Math.floor((now.getTime() + 7 * 3_600_000) / 86_400_000);
+}

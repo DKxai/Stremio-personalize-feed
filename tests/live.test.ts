@@ -98,3 +98,22 @@ test('collaborative ranking has a cold-start fallback and requires three distinc
   assert.equal(communityScores(p,[...signals.slice(0,2),...signals.slice(0,2),...signals.slice(0,2)]).size,0);
   assert.equal(communityScores({...p,id:'u3'},signals).size,0,'Exclude the current profile from social evidence');
 });
+
+test('personal recommendations rotate the recent quality discovery page without increasing the lookup budget', async () => {
+  const pages: string[] = [];
+  for (const date of ['2026-11-15T16:59:00Z', '2026-11-15T17:01:00Z']) {
+    const when = new Date(date);
+    const requests: URL[] = [];
+    const library = new LiveLibrary(new TmdbClient({token:'test-private-token'}, undefined, mockTmdb(requests, when)), undefined, () => when);
+    await library.candidates(profile, 'movie', 'recommended');
+    const discovery = requests.filter(url => url.pathname === '/3/discover/movie');
+    const recent = discovery.find(url => url.searchParams.get('sort_by') === 'vote_average.desc');
+    assert(recent);
+    assert.equal(recent.searchParams.get('primary_release_date.gte'), daysAgo(180, when));
+    assert.equal(recent.searchParams.get('vote_count.gte'), '20');
+    assert(discovery.length <= 6);
+    assert(requests.filter(url => /\/3\/movie\/\d+$/.test(url.pathname)).length <= 40);
+    pages.push(recent.searchParams.get('page')!);
+  }
+  assert.notEqual(pages[0], pages[1]);
+});
