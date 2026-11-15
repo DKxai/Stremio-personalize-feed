@@ -60,6 +60,7 @@ export class RecommendationEngine {
     const filtered = [...new Map(candidates.map(t => [t.type + ':' + t.id, t])).values()]
       .filter(t => t.type === type && !blocked.has(t.id))
       .filter(t => matchesAsian(t, catalog) && matchesWesternVibe(t, catalog))
+      .filter(t => catalog !== 'anime-new' || t.isAnime)
       .filter(t => catalog !== 'trending' || t.weeklyTrend !== undefined)
       .filter(t => catalog !== 'gems' || t.popularity <= 0.45)
       .map(title => ({ title, age: releaseAge(title.releaseDate, now) }))
