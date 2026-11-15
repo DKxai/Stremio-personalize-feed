@@ -22,6 +22,8 @@ export function balancedTopPicks(titles: Title[], history: readonly Title[], sla
   const westRatio = historyTotal ? westernHistory / historyTotal : 0.5;
   const desired = Math.max(0.35,Math.min(0.6,westRatio));
   const size = Math.min(slate, titles.length);
+  // A tiny candidate slate cannot support meaningful regional allocation.
+  if (size < 10) return titles;
   const buckets: Record<RegionBucket,Title[]> = { WESTERN: [], ASIAN: [], GLOBAL_OTHER: [] };
   for (const t of titles) buckets[classifyRegionBucket(t.originCountries)].push(t);
   const otherTarget = Math.min(buckets.GLOBAL_OTHER.length,Math.floor(size*0.1));
