@@ -5,6 +5,7 @@ import type { CatalogId } from './catalogs.js';
 interface AsianFilter { countries: readonly string[]; genres?: readonly string[]; excluded?: readonly string[]; animation?: boolean }
 export const ASIAN_FILTERS: Partial<Record<CatalogId, AsianFilter>> = {
   korean: { countries: ['KR'], excluded: ['Animation'] },
+  'asian-jp-sea': { countries: ['JP','VN','TH','ID','MY','PH','SG'] },
   'k-thriller': { countries: ['KR'], genres: ['Crime', 'Thriller', 'Mystery'], excluded: ['Animation'] },
   chinese: { countries: ['CN', 'TW', 'HK'], excluded: ['Animation'] },
   // Fantasy / History / Adventure are a broad, robust proxy: TMDB has no single reliable "xianxia" genre.
