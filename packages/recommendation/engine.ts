@@ -3,10 +3,12 @@ import { TtlCache } from '../shared/cache.js';
 import { dateOnly, recommendationDay, releaseAge, releaseWindow } from './dates.js';
 import { buildTaste, contentSimilarity, distinctSeed, itemSimilarity } from './taste.js';
 import { matchesAsian } from './asian.js';
+import { matchesWesternVibe } from './western.js';
+import { balancedTopPicks, classifyRegionBucket } from './regions.js';
 import type { CatalogId } from './catalogs.js';
 
 const rotatingCatalogs = new Set<CatalogId>([
-  'recommended', 'because', 'because-2', 'micro', 'japanese', 'korean', 'chinese',
+  'recommended', 'because', 'because-2', 'because-west', 'because-asian', 'micro', 'japanese', 'korean', 'chinese',
   'anime', 'donghua', 'southeast-asia', 'vietnam', 'gems',
 ]);
 const DISCOVERY_POSITIONS = [2, 5, 7];
@@ -27,7 +29,7 @@ function rotateDiscoveries(titles: Title[], day: number, preferredOrigins: strin
 }
 
 const clamp = (score: number) => Math.max(0, Math.min(1, score));
-const personalCatalog = (id: CatalogId) => ['recommended','top','because','because-2','micro','gems'].includes(id);
+const personalCatalog = (id: CatalogId) => ['recommended','top','because','because-2','because-west','because-asian','micro','gems'].includes(id);
 const scoreFreshness = (age: number) => Number.isFinite(age) ? Math.exp(-Math.max(0, age) / 550) : 0;
 const fmtName = (name: string) => name.length > 65 ? name.slice(0, 62) + '…' : name;
 
@@ -43,8 +45,11 @@ export class RecommendationEngine {
     if (cached) return cached;
 
     const taste = buildTaste(profile, seeds, now);
-    const primary = distinctSeed(taste, catalog === 'because-2' ? 1 : 0);
-    const isBecause = catalog === 'because' || catalog === 'because-2';
+    const regionalSeed = catalog === 'because-west' ? 'WESTERN' : catalog === 'because-asian' ? 'ASIAN' : null;
+    const primary = regionalSeed
+      ? taste.seeds.find(s => classifyRegionBucket(s.title.originCountries) === regionalSeed)
+      : distinctSeed(taste, catalog === 'because-2' ? 1 : 0);
+    const isBecause = ['because','because-2','because-west','because-asian'].includes(catalog);
     if (isBecause && !primary) return [];
     const blocked = new Set([
       ...profile.favorites, ...profile.likes, ...profile.watched,
@@ -54,7 +59,7 @@ export class RecommendationEngine {
     const window = releaseWindow(catalog);
     const filtered = [...new Map(candidates.map(t => [t.type + ':' + t.id, t])).values()]
       .filter(t => t.type === type && !blocked.has(t.id))
-      .filter(t => matchesAsian(t, catalog))
+      .filter(t => matchesAsian(t, catalog) && matchesWesternVibe(t, catalog))
       .filter(t => catalog !== 'trending' || t.weeklyTrend !== undefined)
       .filter(t => catalog !== 'gems' || t.popularity <= 0.45)
       .map(title => ({ title, age: releaseAge(title.releaseDate, now) }))
@@ -121,9 +126,10 @@ export class RecommendationEngine {
       }
     }
     selected.push(...ranked.slice(72).map(r=>r.title));
-    const output = rotatingCatalogs.has(catalog)
+    const rotated = rotatingCatalogs.has(catalog)
       ? rotateDiscoveries(selected, day, personalCatalog(catalog) ? profile.preferredOrigins ?? [] : [])
       : selected;
+    const output = catalog === 'recommended' ? balancedTopPicks(rotated, taste.seeds.map(s=>s.title)) : rotated;
     this.cache.set(key, output);
     return output;
   }
