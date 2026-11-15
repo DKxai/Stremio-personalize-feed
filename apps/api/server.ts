@@ -101,7 +101,7 @@ export async function buildServer(db: PrismaClient, config: Config, metadata: Me
 
   app.get('/health', async () => {
     await db.$queryRaw`SELECT 1`;
-    return { status: 'ok', version: '0.4.3', metadata: library.mode, feedReady: library.mode === 'tmdb', storage: config.storageMode };
+    return { status: 'ok', version: '0.5.0', metadata: library.mode, feedReady: library.mode === 'tmdb', storage: config.storageMode };
   });
   app.get('/', async (_request, reply) => reply.redirect('/configure'));
   app.get('/configure', async (_request, reply) => reply.type('text/html').send(configureHtml));
