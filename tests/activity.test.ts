@@ -35,9 +35,9 @@ after(async()=>{await app?.close();await db?.$disconnect();rmSync(dir,{recursive
 
 test('manifest exposes separate Home rows, genre filtering and search-only rows, with library tracking opt-in settings',async()=>{
   const m=(await app.inject('/'+token+'/manifest.json')).json();
-  assert.equal(m.version,'0.4.3');assert.equal(m.catalogs.length,34);
-  const home=m.catalogs.filter((c:any)=>!c.extra.some((e:any)=>e.isRequired));assert.equal(home.length,32);
-  for(const name of ['japanese','korean','chinese','anime','watched','saved']) assert.equal(home.filter((c:any)=>c.id==='pf-'+name).length,2);
+  assert.equal(m.version,'0.5.0');assert.equal(m.catalogs.length,20);
+  const home=m.catalogs.filter((c:any)=>!c.extra.some((e:any)=>e.isRequired));assert.equal(home.length,18);
+  for(const name of ['recommended','because-west','because-asian','trending','western-hub','vibes','korean','chinese','asian-jp-sea']) assert.equal(home.filter((c:any)=>c.id==='pf-'+name).length,2);
   assert.equal(m.catalogs.filter((c:any)=>c.extra.some((e:any)=>e.name==='search')).length,2);
   assert(m.resources.some((r:any)=>r.name==='library'));assert(!m.resources.some((r:any)=>r.name==='player'));
 });

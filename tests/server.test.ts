@@ -42,7 +42,7 @@ test('health, onboarding assets, unconfigured manifest and CORS work', async () 
   assert.match((await app.inject('/assets/configure.js')).body, /api\/profiles/);
   const response = await app.inject('/manifest.json');
   const manifest = response.json();
-  assert.equal(manifest.catalogs.length, 34);
+  assert.equal(manifest.catalogs.length, 20);
   assert.equal(manifest.behaviorHints.configurationRequired, true);
   assert.equal(response.headers['access-control-allow-origin'], '*');
   assert(!manifest.resources.includes('stream'));
