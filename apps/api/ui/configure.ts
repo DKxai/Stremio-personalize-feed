@@ -7,10 +7,10 @@ export const configureHtml = `<!doctype html>
 <p id="storage"></p><p id="status" role="status" aria-live="polite">Đang tải…</p>
 <form id="preferences">
 <section><h2>1. Nội dung bạn muốn xem</h2>
-<label for="region">Khu vực thư viện nền tảng</label><select id="region"></select>
-<p>Mặc định Hoa Kỳ để gộp Netflix, Disney+, HBO Max và các dịch vụ quốc tế. Chọn VN để lọc theo thư viện Việt Nam; một số nền tảng có thể không có dữ liệu tại khu vực này.</p>
+<label for="region">Thị trường của nền tảng xem phim</label><select id="region"></select>
+<p>Chọn thị trường để lọc Xu hướng tuần và các mục Mới phát hành theo thư viện Netflix, Disney+, HBO Max và các nền tảng đã chọn. Chọn Việt Nam để xem dữ liệu của thị trường Việt Nam.</p>
 <div id="platforms" class="choices"></div>
-<h3>Ưu tiên phim từ</h3><div id="origins" class="choices"></div>
+<h3>Quốc gia ưu tiên cho gợi ý</h3><p>Chọn nguồn gốc phim bạn muốn thấy nhiều hơn ở Dành cho bạn. Chọn 1–2 quốc gia để ưu tiên rõ hơn, hoặc bỏ chọn tất cả để khám phá tự do. Bấm Cập nhật sở thích để áp dụng.</p><div id="origins" class="choices"></div>
 <label><input id="prefer-anime" type="checkbox" checked> Ưu tiên anime trong feed dành cho bạn</label>
 <p>Anime có catalog riêng cho cả phim điện ảnh và series. “Anime mới” dùng ngày ra mắt phim/tập đầu, không dùng ngày ra mùa mới của series cũ.</p></section>
 <section><h2>2. Chọn thể loại yêu thích</h2><div id="genres" class="choices"></div></section>

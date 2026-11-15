@@ -98,9 +98,18 @@ $('preferences').addEventListener('submit',async event=>{
     if(!token) body.watched=[...watched];
     if(!body.platforms.length) throw new Error('Chọn ít nhất một nền tảng.');
     if(!token) body.registrationKey=$('invitation').value;
+    const originsChanged = currentProfile && [...body.preferredOrigins].sort().join(',') !== [...currentProfile.preferredOrigins].sort().join(',');
+    const marketChanged = currentProfile && (body.region !== currentProfile.region || [...body.platforms].sort().join(',') !== [...currentProfile.platforms].sort().join(','));
     const data=await api(token ? '/api/profile' : '/api/profiles',{method:token ? 'PUT':'POST',body:JSON.stringify(body)});
     if(data.token) { token=data.token;sessionStorage.setItem('pf-token',token); }
-    fillProfile(data.profile);showInstallation();await preview();
+    fillProfile(data.profile);
+    showInstallation();
+    if(originsChanged || marketChanged) {
+      $('catalog-choice').value = originsChanged ? 'recommended' : 'trending';
+      $('discover-search').value = '';
+      $('discover-genre').value = '';
+    }
+    await preview();
   } catch(error) { status(error.message); }
   finally { $('save').disabled=false; }
 });

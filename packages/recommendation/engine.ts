@@ -33,9 +33,11 @@ function bestMatch(candidate: Features, seeds: Features[]): number {
 const rotatingCatalogs = new Set<CatalogId>(['recommended', 'japanese', 'korean', 'chinese', 'anime', 'because', 'gems']);
 const DISCOVERY_POSITIONS = [2, 5, 7];
 
-function rotateDiscoveries(titles: Title[], day: number): Title[] {
+function rotateDiscoveries(titles: Title[], day: number, preferredOrigins: string[]): Title[] {
   // Pull from below the first screen, in relevance order, with a quality floor.
-  const discovery = titles.slice(8).filter(title => title.quality >= 0.64).slice(0, 24);
+  const eligible = titles.slice(8).filter(title => title.quality >= 0.64);
+  const preferred = eligible.filter(title => title.originCountries?.some(country => preferredOrigins.includes(country)));
+  const discovery = (preferred.length >= 6 ? preferred : eligible).slice(0, 24);
   const count = Math.min(DISCOVERY_POSITIONS.length, Math.floor(discovery.length / 2));
   if (!count) return titles;
   const start = (day * count) % discovery.length;
@@ -76,6 +78,9 @@ export class RecommendationEngine {
 
     const prefs = feedPreferences(profile);
     const window = releaseWindow(catalog);
+    const personalRow = ['recommended', 'because', 'top', 'gems'].includes(catalog);
+    const origins = prefs.preferredOrigins;
+    const originWeight = personalRow && origins.length <= 2 ? 0.32 : 0.14;
     const unique = [...new Map(candidates.map(t => [`${t.type}:${t.id}`, t])).values()];
     const ranked = unique
       .filter(t => t.type === type && !blocked.has(t.id))
@@ -106,12 +111,12 @@ export class RecommendationEngine {
           default: score = 0.75 * match + 0.15 * title.quality + 0.10 * title.popularity;
         }
         const freshness = age >= 0 && age < 90 ? 1 - age / 180 : age >= 90 && age < 365 ? 0.3 : 0;
-        const origin = title.originCountries?.some(c => prefs.preferredOrigins.includes(c)) ? 1 : 0;
+        const origin = title.originCountries?.some(c => origins.includes(c)) ? 1 : 0;
         const anime = prefs.preferAnime && title.isAnime ? 1 : 0;
         // Keep weekly trend ordering dominant. Other rows favor recent Asian content.
         const personalFreshness = Number.isFinite(age) ? Math.max(0, 1 - age / 365) : 0;
-        if (catalog === 'recommended') score += 0.22 * personalFreshness + 0.14 * origin + 0.1 * anime;
-        else if (catalog !== 'trending') score += 0.25 * freshness + 0.14 * origin + 0.1 * anime;
+        if (catalog === 'recommended') score += 0.22 * personalFreshness + originWeight * origin + 0.1 * anime;
+        else if (catalog !== 'trending') score += 0.25 * freshness + originWeight * origin + 0.1 * anime;
         if (['recommended', 'top', 'gems'].includes(catalog)) score += 0.1 * (community.get(title.id) ?? 0);
         return { title, score, genres: candidate.genres, genre };
       })
@@ -145,7 +150,7 @@ export class RecommendationEngine {
         if (recentGenres.length > 4) recentGenres.shift();
       }
     }
-    const output = rotatingCatalogs.has(catalog) ? rotateDiscoveries(result, day) : result;
+    const output = rotatingCatalogs.has(catalog) ? rotateDiscoveries(result, day, personalRow && origins.length <= 2 ? origins : []) : result;
     this.cache.set(key, output);
     return output;
   }

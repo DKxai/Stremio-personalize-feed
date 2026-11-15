@@ -131,11 +131,14 @@ export class LiveLibrary implements LibrarySource {
   async candidates(profile: Profile, type: MediaType, catalog: CatalogId, filters: Pick<CatalogQuery, 'genre'> = {}): Promise<CandidateBatch> {
     const prefs = feedPreferences(profile);
     const pool = catalog === 'because' || catalog === 'top' ? 'recommended' : catalog;
+    const usesOrigins = pool === 'recommended' || pool === 'gems';
+    const origins = [...prefs.preferredOrigins].sort();
     const usesPlatforms = catalog === 'trending' || catalog.startsWith('new');
     const usesGenres = ['recommended', 'because', 'genres', 'top', 'gems'].includes(catalog) && !filters.genre;
     const key = SNAPSHOT_PREFIX + JSON.stringify([
       type, pool, prefs.region, usesPlatforms ? [...prefs.platforms].sort() : [],
       usesGenres ? [...profile.genres].sort() : [], filters.genre,
+      usesOrigins ? origins : [],
     ]);
     let cached = this.rows.get(key);
     if (!cached && this.store) {
@@ -177,6 +180,7 @@ export class LiveLibrary implements LibrarySource {
 
   private async load(profile: Profile, type: MediaType, catalog: CatalogId, filters: Pick<CatalogQuery, 'genre'> = {}): Promise<CandidateBatch> {
     const prefs = feedPreferences(profile);
+    const origins = [...prefs.preferredOrigins].sort();
     const genres = [...profile.genres].sort();
     const media = type === 'movie' ? 'movie' : 'tv';
     const now = this.now();
@@ -224,8 +228,12 @@ export class LiveLibrary implements LibrarySource {
         : { ...common, page: 2 };
       requests.push(this.client.get(`discover/${media}`, secondPage));
       if (['recommended', 'because', 'top', 'gems'].includes(catalog)) {
-        requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: 'KR|CN|TW|HK|JP', page: 1 }));
-        requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: 'JP', without_genres: [common.without_genres, '16'].filter(Boolean).join(','), page: 1 }));
+        if (origins.length) {
+          requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: origins.join('|'), page: 1 }));
+        }
+        if (origins.includes('JP')) {
+          requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: 'JP', without_genres: [common.without_genres, '16'].filter(Boolean).join(','), page: 1 }));
+        }
         const preferredGenres = (filters.genre ? [filters.genre] : genres).map(g => type === 'movie' ? genreIds[g] : tvGenres(g)).filter(Boolean).join('|');
         if (preferredGenres) requests.push(this.client.get(`discover/${media}`, { ...common, with_genres: preferredGenres, page: 1 }));
         requests.push(this.client.get(`discover/${media}`, { ...common, with_genres: filters.genre ? `16,${type === 'movie' ? genreIds[filters.genre] : tvGenres(filters.genre)}` : 16, with_origin_country: 'JP', page: 1 }));

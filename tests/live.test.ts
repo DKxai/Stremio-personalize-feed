@@ -117,3 +117,15 @@ test('personal recommendations rotate the recent quality discovery page without 
   }
   assert.notEqual(pages[0], pages[1]);
 });
+
+test('origin preferences change the discovery query and cache identity independent of market', async () => {
+  const requests: URL[] = [];
+  const library = new LiveLibrary(new TmdbClient({token:'test-private-token'}, undefined, mockTmdb(requests)), undefined, () => now);
+  const jp = await library.candidates({ ...profile, region: 'VN', preferredOrigins: ['JP'] }, 'movie', 'recommended');
+  assert(requests.some(url => url.searchParams.get('with_origin_country') === 'JP'));
+  requests.length = 0;
+  const kr = await library.candidates({ ...profile, region: 'VN', preferredOrigins: ['KR'] }, 'movie', 'recommended');
+  assert.notStrictEqual(kr, jp);
+  assert(requests.some(url => url.searchParams.get('with_origin_country') === 'KR'));
+  assert(requests.every(url => !url.searchParams.has('watch_region')));
+});

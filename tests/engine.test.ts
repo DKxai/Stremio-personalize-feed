@@ -70,3 +70,13 @@ test('Vietnam midnight rotates qualified discoveries into the first screen witho
   const disliked = after[2]!;
   assert(!engine.recommend({ ...p, version: 2, dislikes: [disliked.id] }, 'movie', 'recommended').includes(disliked));
 });
+
+test('changing the only preferred country changes which comparable films lead the feed', () => {
+  const template = TITLES.find(title => title.type === 'movie')!;
+  const jp = { ...template, id: 'tt7000001', originCountries: ['JP'], isAnime: false };
+  const kr = { ...template, id: 'tt7000002', originCountries: ['KR'], isAnime: false };
+  const engine = new RecommendationEngine([jp, kr]);
+  const p = profile('origins', jp.genres);
+  assert.equal(engine.recommend({ ...p, preferredOrigins: ['JP'] }, 'movie', 'recommended')[0]?.id, jp.id);
+  assert.equal(engine.recommend({ ...p, version: 2, preferredOrigins: ['KR'] }, 'movie', 'recommended')[0]?.id, kr.id);
+});
