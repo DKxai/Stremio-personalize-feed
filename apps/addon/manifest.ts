@@ -1,5 +1,5 @@
 import type { Manifest } from 'stremio-addon-sdk';
-import { CATALOGS } from '../../packages/recommendation/catalogs.js';
+import { HOME_CATALOGS } from '../../packages/recommendation/catalogs.js';
 import { GENRES, feedPreferences, type FeedPreferences } from '../../packages/shared/preferences.js';
 
 export type FeedManifest = Omit<Manifest, 'resources'> & { resources: Array<string | { name: string; types: string[]; idPrefixes: string[] }> };
@@ -14,7 +14,7 @@ export function createManifest(configured = false, preferences: Partial<FeedPref
     types: ['movie', 'series'],
     resources: ['catalog', event('meta'), ...(configured && prefs.syncLibrary ? [event('library')] : []), ...(configured && prefs.syncPlayback ? [event('player')] : [])],
     catalogs: (['movie', 'series'] as const).flatMap(type => [
-      ...CATALOGS.map(c => ({ type, id: `pf-${c.id}`, name: c.name,
+      ...HOME_CATALOGS.map(c => ({ type, id: `pf-${c.id}`, name: c.name,
         extra: [skip, ...(['saved','watched'].includes(c.id) ? [] : [{ name: 'genre' as const, isRequired: false, options: [...GENRES] }])],
       })),
       { type, id: 'pf-search', name: 'Tìm phim · Nhật / Hàn / Trung / Anime', extra: [{ name: 'search', isRequired: true }, skip] },
