@@ -1,7 +1,8 @@
 import type { Profile, Title, MediaType } from '../shared/types.js';
 import { TtlCache } from '../shared/cache.js';
-import { feedPreferences, platformPriority } from '../shared/preferences.js';
+import { feedPreferences, LANGUAGES, platformPriority } from '../shared/preferences.js';
 import { dateOnly, recommendationDay, releaseAge, releaseWindow } from './dates.js';
+import { latestRelease, matchesAiring, upcomingDate, vietnamDate } from './airing.js';
 import type { CatalogId } from './catalogs.js';
 
 const overlap = (left: ReadonlySet<string>, right: ReadonlySet<string>): number => {
@@ -30,7 +31,7 @@ function bestMatch(candidate: Features, seeds: Features[]): number {
   return best;
 }
 
-const rotatingCatalogs = new Set<CatalogId>(['recommended', 'japanese', 'korean', 'chinese', 'anime', 'because', 'gems']);
+const rotatingCatalogs = new Set<CatalogId>(['recommended', 'japanese', 'korean', 'chinese', 'lang-ko', 'lang-en', 'lang-ja', 'lang-zh', 'anime', 'because', 'gems']);
 const DISCOVERY_POSITIONS = [2, 5, 7];
 
 function rotateDiscoveries(titles: Title[], day: number, preferredOrigins: string[]): Title[] {
@@ -55,6 +56,7 @@ export class RecommendationEngine {
   recommend(profile: Profile, type: MediaType, catalog: CatalogId, candidates = this.titles, seeds = this.titles, revision = 'fixtures', community: ReadonlyMap<string, number> = new Map()): Title[] {
     const now = this.now();
     const day = recommendationDay(now);
+    const today = vietnamDate(now);
     const key = `${profile.id}:${profile.version}:${type}:${catalog}:${dateOnly(now)}:${day}:${revision}`;
     const cached = this.cache.get(key);
     if (cached) return cached;
@@ -78,12 +80,19 @@ export class RecommendationEngine {
 
     const prefs = feedPreferences(profile);
     const window = releaseWindow(catalog);
+    const language = LANGUAGES.find(item => catalog === `lang-${item.id}`);
+    const preferredLanguageCodes = new Set(LANGUAGES.filter(item => prefs.preferredLanguages.includes(item.id)).flatMap<string>(item => [...item.codes]));
+    const showingEpisodes = catalog === 'anime-episodes';
     const personalRow = ['recommended', 'because', 'top', 'gems'].includes(catalog);
     const origins = prefs.preferredOrigins;
     const originWeight = personalRow && origins.length <= 2 ? 0.32 : 0.14;
     const unique = [...new Map(candidates.map(t => [`${t.type}:${t.id}`, t])).values()];
     const ranked = unique
-      .filter(t => t.type === type && !blocked.has(t.id))
+      .filter(t => t.type === type && (!blocked.has(t.id) || (showingEpisodes && !dislikedIds.has(t.id))))
+      .filter(t => matchesAiring(t, catalog, now))
+      .filter(t => !language || ((language.codes as readonly string[]).includes(t.originalLanguage ?? '') && (language.id !== 'ja' || !t.isAnime)))
+      .filter(t => catalog !== 'donghua' || (t.genres.includes('Animation') && t.originCountries?.some(code => ['CN', 'TW', 'HK'].includes(code))))
+      .filter(t => catalog !== 'anime-gems' || (t.popularity <= 0.55 && t.quality >= 0.65))
       .filter(t => catalog !== 'because' || becauseSeeds.length > 0)
       .filter(t => catalog !== 'korean' || t.originCountries?.includes('KR'))
       .filter(t => catalog !== 'chinese' || t.originCountries?.some(c => ['CN', 'TW', 'HK'].includes(c)))
@@ -93,11 +102,13 @@ export class RecommendationEngine {
       .filter(t => catalog !== 'gems' || t.popularity <= 0.45)
       .map(title => ({
         title,
-        age: releaseAge(title.releaseDate, now),
+        age: releaseAge(catalog === 'recent' ? latestRelease(title, today) : title.releaseDate, today),
+        airDate: catalog === 'anime-upcoming' ? upcomingDate(title, now)
+          : showingEpisodes || catalog === 'anime-season' ? title.lastEpisode?.date : undefined,
         platform: catalog === 'trending' ? platformPriority(title.providers ?? [], prefs.platforms) : 0,
       }))
-      .filter(({ age, platform }) => platform >= 0 && age >= 0 && (!window || (age >= window[0] && age <= window[1])))
-      .map(({ title, age, platform }) => {
+      .filter(({ age, platform }) => platform >= 0 && (catalog === 'anime-upcoming' || age >= 0) && (!window || (age >= window[0] && age <= window[1])))
+      .map(({ title, age, platform, airDate }) => {
         const candidate = features(title);
         const genre = overlap(preferredGenres, candidate.genres);
         const match = catalog === 'because' || catalog === 'genres' ? 0 : Math.max(0,
@@ -107,8 +118,13 @@ export class RecommendationEngine {
         switch (catalog) {
           case 'because': score = 0.85 * bestMatch(candidate, becauseSeeds) + 0.15 * title.quality; break;
           case 'genres': score = 0.85 * genre + 0.15 * title.quality; break;
-          case 'gems': score = 0.65 * match + 0.25 * title.quality + 0.1 * (1 - title.popularity); break;
+          case 'gems': case 'anime-gems': score = 0.65 * match + 0.25 * title.quality + 0.1 * (1 - title.popularity); break;
           case 'trending': score = 0.8 * (title.weeklyTrend ?? 0) + 0.2 * match; break;
+          case 'anime-episodes': {
+            score = 0.55 * match + 0.15 * title.quality + (seenIds.has(title.id) || savedIds.has(title.id) ? 0.4 : 0);
+            break;
+          }
+          case 'recent': score = 0.45 * match + 0.25 * title.quality + 0.3 * (1 - age / 90); break;
           case 'new30': case 'new60': case 'new90': case 'anime-new': score = 0.55 * match + 0.3 * title.quality + 0.15 * title.popularity; break;
           case 'recommended': score = 0.65 * match + 0.30 * title.quality + 0.05 * title.popularity; break;
           case 'top': score = 0.65 * match + 0.35 * title.quality; break;
@@ -119,20 +135,28 @@ export class RecommendationEngine {
         const anime = prefs.preferAnime && title.isAnime ? 1 : 0;
         // Keep weekly trend ordering dominant. Other rows favor recent Asian content.
         const personalFreshness = Number.isFinite(age) ? Math.max(0, 1 - age / 365) : 0;
-        if (catalog === 'recommended') score += 0.22 * personalFreshness + originWeight * origin + 0.1 * anime;
+        if (catalog === 'recommended') {
+          const languageBoost = preferredLanguageCodes.has(title.originalLanguage ?? '') ? (prefs.preferredLanguages.length < LANGUAGES.length ? 0.18 : 0.08) : 0;
+          score += 0.22 * personalFreshness + originWeight * origin + 0.1 * anime + languageBoost;
+        }
         else if (catalog !== 'trending') score += 0.25 * freshness + originWeight * origin + 0.1 * anime;
         if (['recommended', 'top', 'gems'].includes(catalog)) score += 0.1 * (community.get(title.id) ?? 0);
-        return { title, score, platform, genres: candidate.genres, genre };
+        return { title, score, platform, airDate, genres: candidate.genres, genre };
       })
       .filter(row => catalog !== 'genres' || !preferredGenres.size || row.genre > 0)
-      .sort((a, b) => a.platform - b.platform || b.score - a.score || a.title.id.localeCompare(b.title.id));
+      .sort((a, b) => {
+        const byAirDate = catalog === 'anime-upcoming' ? (a.airDate ?? '').localeCompare(b.airDate ?? '')
+          : showingEpisodes ? (b.airDate ?? '').localeCompare(a.airDate ?? '') : 0;
+        return a.platform - b.platform || byAirDate || b.score - a.score || a.title.id.localeCompare(b.title.id);
+      });
 
     // Greedy reranking penalizes repetitive adjacent recommendations without randomness.
     const result: Title[] = [];
-    if (catalog === 'trending' || catalog === 'genres' || catalog === 'top') {
+    if (catalog === 'trending' || catalog === 'genres' || catalog === 'top' || showingEpisodes || catalog === 'anime-upcoming') {
       for (const row of ranked) result.push(row.title);
     } else {
       const recentGenres: ReadonlySet<string>[] = [];
+      const recentLanguages: string[] = [];
       while (ranked.length) {
         let bestIndex = 0;
         let bestScore = -Infinity;
@@ -142,7 +166,10 @@ export class RecommendationEngine {
           for (const genres of recentGenres) {
             repetition = Math.max(repetition, overlap(candidate.genres, genres));
           }
-          const adjusted = candidate.score - 0.06 * repetition;
+          const language = candidate.title.originalLanguage;
+          const languageRepetition = catalog === 'recommended' && result.length >= 2 && language
+            ? 0.04 * recentLanguages.filter(previous => previous === language).length : 0;
+          const adjusted = candidate.score - 0.06 * repetition - languageRepetition;
           if (adjusted > bestScore) {
             bestIndex = index;
             bestScore = adjusted;
@@ -151,11 +178,23 @@ export class RecommendationEngine {
         const selected = ranked.splice(bestIndex, 1)[0]!;
         result.push(selected.title);
         recentGenres.push(selected.genres);
+        recentLanguages.push(selected.title.originalLanguage ?? '');
+        if (recentLanguages.length > 3) recentLanguages.shift();
         if (recentGenres.length > 4) recentGenres.shift();
       }
     }
     const output = rotatingCatalogs.has(catalog) ? rotateDiscoveries(result, day, personalRow && origins.length <= 2 ? origins : []) : result;
-    this.cache.set(key, output);
-    return output;
+    const annotated = output.map((title, index) => {
+      if (showingEpisodes && title.lastEpisode) {
+        const { season, episode, date } = title.lastEpisode;
+        return { ...title, activityNote: `Tập ${episode}, mùa ${season} · phát sóng ${date}` };
+      }
+      if (catalog === 'anime-upcoming') return { ...title, activityNote: `Dự kiến phát sóng ${upcomingDate(title, now)}` };
+      if (catalog === 'recent' && title.type === 'series') return { ...title, activityNote: `Mùa mới · ${latestRelease(title, today)}` };
+      const genre = catalog === 'recommended' && index < 8 ? title.genres.find(genre => preferredGenres.has(genre)) : undefined;
+      return genre ? { ...title, activityNote: `Hợp thể loại bạn chọn · ${genre}` } : title;
+    });
+    this.cache.set(key, annotated);
+    return annotated;
   }
 }

@@ -15,7 +15,7 @@ export function inReleaseWindow(date: string | undefined, minimum: number, maxim
   return age >= minimum && age <= maximum;
 }
 export function releaseWindow(catalog: string): [number, number] | null {
-  return catalog === 'new30' ? [0, 29] : catalog === 'new60' ? [30, 59] : catalog === 'new90' ? [60, 89] : catalog === 'anime-new' ? [0, 89] : null;
+  return catalog === 'new30' ? [0, 29] : catalog === 'new60' ? [30, 59] : catalog === 'new90' ? [60, 89] : (catalog === 'anime-new' || catalog === 'recent') ? [0, 89] : null;
 }
 
 // UTC+7 keeps the rotation aligned with midnight in Vietnam.

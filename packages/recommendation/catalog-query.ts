@@ -1,4 +1,3 @@
-import { GENRES } from '../shared/preferences.js';
 export interface CatalogQuery { skip: number; genre?: string; search?: string }
 export function parseCatalogQuery(encoded?: string): CatalogQuery {
   if (!encoded) return { skip: 0 };
@@ -15,6 +14,6 @@ export function parseCatalogQuery(encoded?: string): CatalogQuery {
   const search = rawSearch?.normalize('NFC').trim().replace(/\s+/g,' ');
   if (search !== undefined && (!search.length || search.length > 80 || /[\u0000-\u001f\u007f]/.test(search))) return fail();
   const genre = params.get('genre') ?? undefined;
-  if (genre !== undefined && !(GENRES as readonly string[]).includes(genre)) return fail();
+  if (genre !== undefined && (!genre.length || genre.length > 80 || /[\u0000-\u001f\u007f]/.test(genre))) return fail();
   return { skip, ...(search !== undefined ? { search } : {}), ...(genre ? { genre } : {}) };
 }

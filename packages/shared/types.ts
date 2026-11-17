@@ -6,6 +6,7 @@ export interface Title {
   id: string;
   type: MediaType;
   name: string;
+  originalName?: string;
   year: number;
   genres: string[];
   cast: string[];
@@ -18,6 +19,10 @@ export interface Title {
   originCountries?: string[];
   originalLanguage?: string;
   isAnime?: boolean;
+  seriesStatus?: string;
+  seasonStarts?: string[];
+  lastEpisode?: EpisodeAirDate;
+  nextEpisode?: EpisodeAirDate;
   poster?: string;
   overview?: string;
   providers?: string[];
@@ -26,6 +31,8 @@ export interface Title {
   source?: 'tmdb' | 'fixtures';
   activityNote?: string;
 }
+
+export interface EpisodeAirDate { date: string; season: number; episode: number }
 
 export interface Profile extends Partial<FeedPreferences> {
   id: string;

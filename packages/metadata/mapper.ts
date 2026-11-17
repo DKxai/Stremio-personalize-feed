@@ -10,6 +10,6 @@ export function toMetaPreview(title: Title): MetaPreview & { genres: string[] } 
     id: title.id, type: title.type, genres: title.genres, name: title.name,
     poster: title.poster || `https://images.metahub.space/poster/medium/${title.id}/img`,
     posterShape: 'regular',
-    description: [title.releaseDate || title.year, title.genres.join(', '), origins, title.providers?.length ? 'Có trên: ' + title.providers.join(', ') + ' (JustWatch / TMDB)' : '', title.activityNote || '', title.overview || ''].filter(Boolean).join(' · '),
+    description: [title.releaseDate || title.year, title.genres.join(', '), origins, title.providers?.length ? 'Có trên: ' + title.providers.join(', ') + ' (JustWatch / TMDB)' : '', title.activityNote || '', title.originalName && title.originalName !== title.name ? title.originalName : '', title.overview || ''].filter(Boolean).join(' · '),
   };
 }
