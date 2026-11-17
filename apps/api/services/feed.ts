@@ -1,4 +1,4 @@
-import type { LibrarySource } from '../../../packages/metadata/live-library.js';
+import type { DiscoverBatch, LibrarySource } from '../../../packages/metadata/live-library.js';
 import type { Profile, MediaType, Title } from '../../../packages/shared/types.js';
 import { feedPreferences } from '../../../packages/shared/preferences.js';
 import { RecommendationEngine } from '../../../packages/recommendation/engine.js';
@@ -85,8 +85,7 @@ export class FeedService {
     return task;
   }
 
-  private async discoveryPage(profile: Profile, type: MediaType, catalog: CatalogId, query: CatalogQuery, country?: string) {
-    const key = JSON.stringify([profile.id, profile.version, type, catalog, query.genre, country]);
+  private async paginate(key: string, skip: number, size: number, load: (state: DiscoveryList) => Promise<DiscoverBatch>) {
     let list = this.discovery.get(key);
     if (!list) {
       list = { titles: [], ids: new Set(), nextPage: 0, finished: false, revision: ++this.revision };
@@ -94,21 +93,7 @@ export class FeedService {
     }
     const state = list;
     const extend = async () => {
-      let batch: Title[];
-      let more = true;
-      if (catalog === 'recommended' && state.nextPage === 0) {
-        batch = await this.recommend(profile, type, catalog, query);
-      } else {
-        const page = catalog === 'recommended' ? state.nextPage : state.nextPage + 1;
-        const [source, signals] = await Promise.all([
-          this.library.discoverPage!(profile, type, catalog, page, query.genre, country), this.profileSignals(profile),
-        ]);
-        more = source.more;
-        const candidates = source.titles.filter(t => !state.ids.has(t.id));
-        batch = this.engine.recommend(query.genre ? { ...profile, genres: [query.genre] } : profile,
-          type, catalog, candidates, signals.seeds, 'discover/' + state.revision + '/' + page,
-          signals.community, state.titles.slice(-4));
-      }
+      const { titles: batch, more } = await load(state);
       for (const title of batch) {
         if (state.ids.has(title.id)) continue;
         state.titles.push(title);
@@ -120,42 +105,64 @@ export class FeedService {
     // Bound upstream work for stale offsets and exceptionally sparse filters.
     // Progress survives retries, including a failure while fetching a later batch.
     let budget = 16;
-    while (!state.finished && state.titles.length < query.skip + DISCOVERY_PAGE_SIZE) {
-      if (--budget < 0) throw new UpstreamUnavailable('Đang chuẩn bị thêm kết quả. Hãy thử lại.');
+    while (!state.finished && state.titles.length < skip + size) {
+      if (--budget < 0) {
+        if (state.titles.length > skip) break;
+        throw new UpstreamUnavailable('Đang chuẩn bị thêm kết quả. Hãy thử lại.');
+      }
       state.loading ??= extend().finally(() => { state.loading = undefined; });
       await state.loading;
     }
-    return state.titles.slice(query.skip, query.skip + DISCOVERY_PAGE_SIZE);
+    return state.titles.slice(skip, skip + size);
   }
 
   async page(profile: Profile, type: MediaType, catalog: CatalogId | 'search', query: CatalogQuery): Promise<Title[]> {
     const region = feedPreferences(profile).region;
+    const key = JSON.stringify([profile.id, profile.version, type, catalog, query.genre, query.search]);
     if (catalog === 'search') {
-      if (!query.search || query.skip % PAGE_SIZE) return [];
-      const pages = await Promise.all(Array.from({ length: PAGE_SIZE / 20 }, (_, i) => this.library.search(query.search!, region, type, query.skip / 20 + i + 1)));
-      return [...new Map(pages.flat().map(t => [t.id, t])).values()];
+      const term = query.search;
+      if (!term) return [];
+      return this.paginate(key, query.skip, DISCOVERY_PAGE_SIZE, async state => {
+        const page = state.nextPage + 1;
+        if (this.library.searchPage) return this.library.searchPage(term, region, type, page);
+        const titles = await this.library.search(term, region, type, page);
+        return { titles, more: titles.length >= 20 };
+      });
     }
-    const sourceProfile = profile;
     const view = selectCatalog(profile, catalog, type, query.genre);
+    const id = view.id;
     profile = view.profile;
-    catalog = view.id;
-    if (catalog === 'saved' || catalog === 'watched') {
-      const ids = [...new Set(catalog === 'watched' ? [...profile.watched, ...(profile.started ?? [])] : [...(profile.saved ?? []), ...profile.favorites, ...profile.likes])]
+    if (id === 'saved' || id === 'watched') {
+      const ids = [...new Set(id === 'watched' ? [...profile.watched, ...(profile.started ?? [])] : [...(profile.saved ?? []), ...profile.favorites, ...profile.likes])]
         .filter(id => !profile.itemTypes?.[id] || profile.itemTypes[id] === type);
-      const titles = await Promise.all(ids.slice(query.skip, query.skip + PAGE_SIZE).map(id => this.library.resolve(id, type, region)));
-      return titles.filter((t): t is Title => Boolean(t)).map(t => ({ ...t, activityNote: profile.watched.includes(t.id) ? 'Đã xem' : profile.episodeCounts?.[t.id] ? `Đã xem ${profile.episodeCounts[t.id]} tập · chưa đánh dấu cả bộ` : profile.likes.includes(t.id) || profile.favorites.includes(t.id) ? 'Yêu thích' : 'Đã lưu trong thư viện' }));
+      return this.paginate(key, query.skip, PAGE_SIZE, async state => {
+        const start = state.nextPage * PAGE_SIZE;
+        const results = await Promise.all(ids.slice(start, start + PAGE_SIZE).map(id => this.library.resolve(id, type, region)));
+        const titles = results.filter((t): t is Title => Boolean(t)).map(t => ({ ...t, activityNote: profile.watched.includes(t.id) ? 'Đã xem' : profile.episodeCounts?.[t.id] ? `Đã xem ${profile.episodeCounts[t.id]} tập · chưa đánh dấu cả bộ` : profile.likes.includes(t.id) || profile.favorites.includes(t.id) ? 'Yêu thích' : 'Đã lưu trong thư viện' }));
+        return { titles, more: start + PAGE_SIZE < ids.length };
+      });
     }
-    if (this.library.discoverPage && ['recommended', 'animation', 'tv-shows'].includes(catalog)) {
-      return this.discoveryPage(profile, type, catalog, { skip: query.skip, genre: view.genre }, view.country);
-    }
-    const titles = await this.recommend(profile, type, catalog, { ...query, genre: view.genre }, sourceProfile);
     const theme = view.theme && animeThemes[view.theme];
     const window = view.releaseBand && releaseWindow(view.releaseBand);
     const today = vietnamDate(new Date());
-    const filtered = titles.filter(title => (catalog !== 'tv-shows' || title.originCountries?.some(code =>
+    const eligible = (title: Title) => (id !== 'tv-shows' || title.originCountries?.some(code =>
       view.country ? code === view.country : ['GB', 'JP', 'KR', 'CN'].includes(code))) && (!theme || [...title.genres, ...title.keywords].some(value => theme.test(value)))
-      && (!window || inReleaseWindow(latestRelease(title, today), ...window, today)));
-    return filtered.slice(query.skip, query.skip + PAGE_SIZE);
+      && (!window || inReleaseWindow(latestRelease(title, today), ...window, today));
+    return this.paginate(key, query.skip, DISCOVERY_PAGE_SIZE, async state => {
+      if (!this.library.discoverPage || (id === 'recommended' && state.nextPage === 0)) {
+        const titles = await this.recommend(profile, type, id, { skip: 0, genre: view.genre });
+        return { titles: titles.filter(eligible), more: Boolean(this.library.discoverPage) };
+      }
+      const page = id === 'recommended' ? state.nextPage : state.nextPage + 1;
+      const [source, signals] = await Promise.all([
+        this.library.discoverPage(profile, type, id, page, view.genre, view.country), this.profileSignals(profile),
+      ]);
+      if (id === 'because' && !signals.seeds.length) return { titles: [], more: false };
+      const candidates = source.titles.filter(t => !state.ids.has(t.id) && eligible(t));
+      const titles = this.engine.recommend(view.genre ? { ...profile, genres: [view.genre] } : profile,
+        type, id, candidates, signals.seeds, 'discover/' + state.revision + '/' + page,
+        signals.community, state.titles.slice(-4));
+      return { titles, more: source.more };
+    });
   }
-
 }

@@ -66,9 +66,10 @@ function episodeDate(value: any): EpisodeAirDate | undefined {
   return { date: value.air_date, season: value.season_number, episode: value.episode_number };
 }
 
-export interface CandidateBatch { titles: Title[]; revision: string; source: 'tmdb' | 'fixtures' }
+export interface CandidateBatch { more?: boolean; titles: Title[]; revision: string; source: 'tmdb' | 'fixtures' }
 export interface DiscoverBatch { titles: Title[]; more: boolean }
 export interface LibrarySource {
+  searchPage?(query: string, region: string, type?: MediaType, page?: number): Promise<DiscoverBatch>;
   discoverPage?(profile: Profile, type: MediaType, catalog: CatalogId, page: number, genre?: string, country?: string): Promise<DiscoverBatch>;
   readonly mode: 'tmdb' | 'fixtures' | 'unconfigured';
   candidates(profile: Profile, type: MediaType, catalog: CatalogId, filters?: Pick<CatalogQuery, 'genre'>): Promise<CandidateBatch>;
@@ -147,19 +148,27 @@ export class LiveLibrary implements LibrarySource {
     return title;
   }
 
-  async search(query: string, region: string, type?: MediaType, page = 1): Promise<Title[]> {
+  async search(query: string, region: string, type?: MediaType, page = 1) {
+    return (await this.searchPage(query, region, type, page)).titles;
+  }
+
+  async searchPage(query: string, region: string, type?: MediaType, page = 1): Promise<DiscoverBatch> {
     if (/^tt\d{7,10}$/.test(query)) {
-      if (page > 1) return [];
-      const title = await this.resolve(query, type, region); return title ? [title] : [];
+      if (page > 1) return { titles: [], more: false };
+      const title = await this.resolve(query, type, region); return { titles: title ? [title] : [], more: false };
     }
     const data = await this.client.get(type ? `search/${type === 'movie' ? 'movie' : 'tv'}` : 'search/multi', { query, include_adult: 'false', page });
     const rows = (data?.results || []).filter((r: any) => r.adult !== true && (type || ['movie', 'tv'].includes(r.media_type))).slice(0, type ? 20 : 12);
     const titles = await Promise.all(rows.map((r: any) => this.detail(r.id, type || (r.media_type === 'movie' ? 'movie' : 'series'), region)));
     // Keep TMDB relevance and alias matching, including Japanese/Korean/Chinese names.
-    return titles.filter((t): t is Title => Boolean(t));
+    return { titles: titles.filter((t): t is Title => Boolean(t)), more: page < Math.min(data?.total_pages ?? 1, 500) };
   }
 
   async discoverPage(profile: Profile, type: MediaType, catalog: CatalogId, page: number, genre?: string, country?: string): Promise<DiscoverBatch> {
+    if (catalog !== 'tv-shows' && catalog !== 'animation') {
+      const batch = await this.candidates(profile, type, catalog, { genre }, page);
+      return { titles: batch.titles, more: Boolean(batch.more) };
+    }
     const media = type === 'movie' ? 'movie' : 'tv';
     const selectedGenre = genre && (type === 'movie' ? genreIds[genre] : tvGenres(genre));
     const params: Record<string, string | number> = { page, include_adult: 'false', sort_by: 'popularity.desc' };
@@ -184,7 +193,7 @@ export class LiveLibrary implements LibrarySource {
     };
   }
 
-  async candidates(profile: Profile, type: MediaType, catalog: CatalogId, filters: Pick<CatalogQuery, 'genre'> = {}): Promise<CandidateBatch> {
+  async candidates(profile: Profile, type: MediaType, catalog: CatalogId, filters: Pick<CatalogQuery, 'genre'> = {}, round = 0): Promise<CandidateBatch> {
     const prefs = feedPreferences(profile);
     const pool = catalog === 'because' || catalog === 'top' ? 'recommended' : catalog;
     const usesOrigins = pool === 'recommended' || pool === 'gems';
@@ -193,7 +202,7 @@ export class LiveLibrary implements LibrarySource {
     const usesPlatforms = catalog === 'trending' || catalog === 'recent' || catalog.startsWith('new');
     const usesGenres = ['recommended', 'because', 'genres', 'top', 'gems'].includes(catalog) && !filters.genre;
     const key = SNAPSHOT_PREFIX + JSON.stringify([
-      type, pool, prefs.region, usesPlatforms ? [...prefs.platforms].sort() : [],
+      type, pool, round, prefs.region, usesPlatforms ? [...prefs.platforms].sort() : [],
       usesGenres ? [...profile.genres].sort() : [], filters.genre,
       usesOrigins ? origins : [], usesLanguages ? [...prefs.preferredLanguages].sort() : [],
     ]);
@@ -214,7 +223,7 @@ export class LiveLibrary implements LibrarySource {
     if (!task) {
       if (usable && this.refreshing >= MAX_BACKGROUND_REFRESHES) return usable.batch;
       if (usable) this.refreshing++;
-      task = this.load(profile, type, pool, filters).then(async batch => {
+      task = this.load(profile, type, pool, filters, round).then(async batch => {
         const refreshedAt = this.now().getTime();
         const snapshot = { batch: { ...batch, revision: String(refreshedAt) }, refreshedAt };
         this.rows.set(key, snapshot);
@@ -236,7 +245,7 @@ export class LiveLibrary implements LibrarySource {
     return usable.batch;
   }
 
-  private async load(profile: Profile, type: MediaType, catalog: CatalogId, filters: Pick<CatalogQuery, 'genre'> = {}): Promise<CandidateBatch> {
+  private async load(profile: Profile, type: MediaType, catalog: CatalogId, filters: Pick<CatalogQuery, 'genre'> = {}, round = 0): Promise<CandidateBatch> {
     const prefs = feedPreferences(profile);
     const origins = [...prefs.preferredOrigins].sort();
     const genres = [...profile.genres].sort();
@@ -293,14 +302,25 @@ export class LiveLibrary implements LibrarySource {
       common[type === 'movie' ? 'primary_release_date.gte' : 'first_air_date.gte'] = daysAgo(8 * 365, vietnamDate(now));
     }
     const requests: Promise<any>[] = [];
+    let more = false;
+    // Sources which already read two adjacent TMDB pages advance by two per round.
+    const offset = Math.max(0, round - 1);
+    const add = (path: string, params: Record<string, string | number>, stride = 1, ttl?: number) => {
+      const page = Number(params.page ?? 1) + offset * stride;
+      if (page > 500) return;
+      requests.push(this.client.get(path, { ...params, page }, ttl).then(data => {
+        if (page + stride <= Math.min(data?.total_pages ?? 1, 500)) more = true;
+        return data;
+      }));
+    };
     if (catalog === 'trending') {
       // Real weekly TMDB ranks; availability is checked per title and selected territory below.
-      for (const page of [1, 2]) requests.push(this.client.get(`trending/${media}/week`, { page }, 2 * 3_600_000));
+      for (const page of [1, 2]) add(`trending/${media}/week`, { page }, 2, 2 * 3_600_000);
     } else if (language) {
-      for (const code of language.codes) requests.push(this.client.get(`discover/${media}`, { ...common, with_original_language: code }));
-      if (language.codes.length === 1) requests.push(this.client.get(`discover/${media}`, { ...common, with_original_language: language.codes[0], page: 2 }));
+      for (const code of language.codes) add(`discover/${media}`, { ...common, with_original_language: code }, language.codes.length === 1 ? 2 : 1);
+      if (language.codes.length === 1) add(`discover/${media}`, { ...common, with_original_language: language.codes[0], page: 2 }, 2);
     } else {
-      requests.push(this.client.get(`discover/${media}`, common));
+      add(`discover/${media}`, common, catalog === 'recommended' ? 1 : 2);
       const secondPage = catalog === 'recommended'
         ? {
           ...common,
@@ -310,24 +330,24 @@ export class LiveLibrary implements LibrarySource {
           page: 1 + recommendationDay(now) % 3,
         }
         : { ...common, page: 2 };
-      requests.push(this.client.get(`discover/${media}`, secondPage));
+      add(`discover/${media}`, secondPage, catalog === 'recommended' ? 1 : 2);
       if (['recommended', 'because', 'top', 'gems'].includes(catalog)) {
         if (catalog === 'recommended' && prefs.preferredLanguages.length > 0 && prefs.preferredLanguages.length < LANGUAGES.length) {
           // Rotate language coverage within the existing 40-title detail cap.
           const preferred = LANGUAGES.filter(item => prefs.preferredLanguages.includes(item.id));
           const index = recommendationDay(now) % Math.max(1, preferred.length);
           const mainLanguage = preferred[index];
-          if (mainLanguage) requests.push(this.client.get(`discover/${media}`, { ...common, with_original_language: mainLanguage.codes[0] }));
+          if (mainLanguage) add(`discover/${media}`, { ...common, with_original_language: mainLanguage.codes[0] });
         }
         if (origins.length) {
-          requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: origins.join('|'), page: 1 }));
+          add(`discover/${media}`, { ...common, with_origin_country: origins.join('|'), page: 1 });
         }
         if (origins.includes('JP') && (prefs.preferredLanguages.length === 0 || prefs.preferredLanguages.length === LANGUAGES.length || catalog !== 'recommended')) {
-          requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: 'JP', without_genres: [common.without_genres, '16'].filter(Boolean).join(','), page: 1 }));
+          add(`discover/${media}`, { ...common, with_origin_country: 'JP', without_genres: [common.without_genres, '16'].filter(Boolean).join(','), page: 1 });
         }
         const preferredGenres = (filters.genre ? [filters.genre] : genres).map(g => type === 'movie' ? genreIds[g] : tvGenres(g)).filter(Boolean).join('|');
-        if (preferredGenres) requests.push(this.client.get(`discover/${media}`, { ...common, with_genres: preferredGenres, page: 1 }));
-        requests.push(this.client.get(`discover/${media}`, { ...common, with_genres: filters.genre ? `16,${type === 'movie' ? genreIds[filters.genre] : tvGenres(filters.genre)}` : 16, with_origin_country: 'JP', page: 1 }));
+        if (preferredGenres) add(`discover/${media}`, { ...common, with_genres: preferredGenres, page: 1 });
+        add(`discover/${media}`, { ...common, with_genres: filters.genre ? `16,${type === 'movie' ? genreIds[filters.genre] : tvGenres(filters.genre)}` : 16, with_origin_country: 'JP', page: 1 });
       }
     }
     const pages = await Promise.all(requests);
@@ -339,7 +359,7 @@ export class LiveLibrary implements LibrarySource {
       for (let i = 0; i < 20; i++) for (const page of pages) candidateRows.push(page.results?.[i]);
     }
     const ids = [...new Set<number>(candidateRows
-      .filter(row => row && row.adult !== true && Number.isInteger(row.id)).map(row => row.id))].slice(0, 40);
+      .filter(row => row && row.adult !== true && Number.isInteger(row.id)).map(row => row.id))].slice(0, round ? undefined : 40);
     const titles = (await Promise.all(ids.map(id => this.detail(id, type, prefs.region, catalog === 'anime-upcoming')))).filter((t): t is Title => Boolean(t));
     const filtered = titles.filter(t => !window || inReleaseWindow(catalog === 'recent' ? latestRelease(t, vietnamDate(now)) : t.releaseDate, ...window, vietnamDate(now)))
       .filter(t => matchesAiring(t, catalog, now))
@@ -352,7 +372,7 @@ export class LiveLibrary implements LibrarySource {
       .filter(t => !catalog.startsWith('anime') || t.isAnime)
       .filter(t => !filters.genre || t.genres.includes(filters.genre));
     return {
-      titles: filtered.map(t => catalog === 'trending' ? { ...t, weeklyTrend: 1 - ids.indexOf(t.tmdbId!) / Math.max(1, ids.length) } : t),
+      more, titles: filtered.map(t => catalog === 'trending' ? { ...t, weeklyTrend: 1 - ids.indexOf(t.tmdbId!) / Math.max(1, ids.length) } : t),
       revision: `${today}:${Math.floor(this.now().getTime() / 1_800_000)}`, source: 'tmdb',
     };
   }

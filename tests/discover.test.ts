@@ -76,3 +76,70 @@ test('an unavailable TVDB allows TMDB-only shows to be served and suppresses rep
   assert(!result.some(t => t.id === 'tt1000001'));
   assert.equal(calls, 1);
 });
+
+test('every selectable catalog and option can continue past an empty filtered source page', async () => {
+  const { catalogViews, selectCatalog } = await import('../packages/recommendation/views.js');
+  const { feedPreferences } = await import('../packages/shared/preferences.js');
+  const p = { ...profile, ...feedPreferences(), homeExtras: ['because', 'regional-movies'], likes: ['tt1234567'] };
+  for (const view of catalogViews(p)) {
+    for (const option of view.options) {
+      const selection = selectCatalog(p, view.id, view.type, option);
+      if (['saved', 'watched'].includes(selection.id)) continue;
+      const calls: number[] = [];
+      const library = {
+        mode: 'tmdb' as const,
+        async candidates() { return { titles: [], source: 'tmdb' as const, revision: 'test' }; },
+        async resolve() {
+          return { id: 'tt1234567', type: view.type, name: 'Seed', year: 2020, quality: 1, popularity: 1, genres: [], cast: [], directors: [], keywords: [] };
+        },
+        async search() { return []; },
+        async discoverPage(_p: Profile, type: string, id: string, page: number, genre?: string, country?: string) {
+          assert.equal(type, view.type);
+          assert.equal(id, selection.id);
+          assert.equal(genre, selection.genre);
+          assert.equal(country, selection.country);
+          calls.push(page);
+          return { titles: [], more: page < 2 };
+        },
+      };
+      const service = new FeedService(library);
+      assert.deepEqual(await service.page(p, view.type, view.id, { skip: 0, genre: option }), []);
+      assert.deepEqual(calls, [1, 2], view.id + '/' + option);
+    }
+  }
+});
+
+test('typed search and incomplete saved metadata paginate by visible items', async () => {
+  const base = { type: 'movie' as const, name: 'Title', year: 2020, genres: [], cast: [], directors: [], keywords: [], quality: 1, popularity: 1 };
+  const ids = Array.from({ length: 125 }, (_, i) => 'tt' + (1000000 + i));
+  const source = {
+    mode: 'tmdb' as const,
+    async resolve(id: string) { return id === ids[0] ? undefined : { ...base, id }; },
+    async search() { return []; },
+    async candidates() { return { titles: [], source: 'tmdb' as const, revision: 'test' }; },
+    async searchPage(_term: string, _region: string, _type: string, page: number) {
+      // First page lost all its IMDb mappings. Adjacent pages share one title.
+      const titles = page === 1 ? [] : ids.slice((page - 2) * 19, (page - 2) * 19 + 20).map(id => ({ ...base, id }));
+      return { titles, more: page < 4 };
+    },
+  };
+  const service = new FeedService(source);
+  const search = (skip: number) => service.page(profile, 'movie', 'search', { search: 'film', skip });
+  assert.deepEqual([...(await search(0)), ...(await search(30))].map(t => t.id), ids.slice(0, 58));
+  assert.deepEqual(await search(58), []);
+  const library = (skip: number) => service.page({ ...profile, saved: ids }, 'movie', 'library', { genre: 'Đã lưu & Yêu thích', skip });
+  assert.deepEqual([...(await library(0)), ...(await library(100))].map(t => t.id), ids.slice(1));
+});
+
+test('filtered language and anime rows fetch deeper matching TMDB pages', async () => {
+  const { library, urls } = source();
+  for (const id of ['lang-en', 'anime', 'japanese', 'gems'] as const) {
+    urls.length = 0;
+    await library.discoverPage(profile, 'movie', id, 2);
+    const requests = urls.filter(u => u.pathname.includes('/discover/'));
+    assert(requests.some(u => u.searchParams.get('page') === '3'));
+    assert(requests.some(u => u.searchParams.get('page') === '4'));
+    if (id === 'lang-en') assert(requests.every(u => u.searchParams.get('with_original_language') === 'en'));
+    if (id === 'anime') assert(requests.every(u => u.searchParams.get('with_genres') === '16'));
+  }
+});

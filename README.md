@@ -8,7 +8,7 @@ Bản **0.4** bổ sung Đã xem / Thư viện riêng, callback Stremio library/
 
 - **Hoạt hình thế giới** có mục Movie và Series, gồm hoạt hình ngoài anime từ các quốc gia, kể cả donghua. Chọn “Tất cả” hoặc lọc thêm theo thể loại. Anime Nhật vẫn có các mục riêng.
 - **TV Show** dành cho series thực tế và talk show, gồm các chương trình thi đấu được TMDB phân loại Reality. Chọn “Tất cả”, Anh (GB), Nhật, Hàn hoặc Trung Quốc đại lục. Quốc gia sản xuất độc lập với thị trường xem trong profile.
-- **Cuộn tiếp** trong Dành cho bạn, Hoạt hình thế giới và TV Show tải tối đa 30 mục mỗi lượt trực tiếp. Stremio gửi `skip` bằng số mục đã nhận. Server chấm ứng viên mới theo cùng profile, nối vào cuối, loại trùng IMDb ID và giữ thứ tự trong cache phiên 30 phút (tối đa 20 danh sách). Cuộn không tạo tương tác. Các catalog theo lịch và xu hướng giữ quy tắc xếp hạng riêng.
+- **Cuộn tiếp** áp dụng cho mọi mục Discover và mọi lựa chọn bộ lọc trong manifest. Mỗi lượt trả tối đa 30 kết quả, riêng thư viện trả tối đa 100. Stremio gửi `skip` bằng số mục đã nhận. Server chấm ứng viên mới theo cùng profile, nối vào cuối, loại trùng IMDb ID và giữ thứ tự trong cache phiên 30 phút (tối đa 20 danh sách). Cuộn không tạo tương tác. Kết quả tìm kiếm giữ thứ tự nguồn, thư viện giữ thứ tự danh sách, còn các catalog theo lịch và xu hướng dùng quy tắc xếp hạng riêng cho mỗi lô. Khi hết nguồn, lượt cuộn tiếp trả danh sách rỗng.
 - **TheTVDB v4** là nguồn tùy chọn. Cấu hình `TVDB_API_KEY` trên server và `TVDB_PIN` nếu loại key yêu cầu. Show có TVDB ID được đối chiếu trực tiếp, hoặc tra IMDb ID để tìm đúng series. Genre và tag bổ sung tham gia so khớp từ khóa giữa show và lịch sử profile. Với series thiếu IMDb ID, có thể khôi phục từ TVDB ID. Khi TVDB gặp lỗi, feed dùng TMDB. Xem [điều kiện API TheTVDB](https://thetvdb.com/api-information).
 - Sau khi deploy, cài lại add-on bằng manifest của **cùng profile** để Stremio hiển thị catalog mới.
 
@@ -133,7 +133,7 @@ Token riêng là capability của profile, không phải tài khoản Stremio. C
 | `POST /api/interactions` | `{mediaId:"tt...",kind:"like"/"dislike"/"watched"/"unwatched"/"unlike"/"undislike"/"save"/"unsave"/"clear"}`; Bearer token |
 | `GET /<token>/manifest.json` | Manifest đã cấu hình |
 | `GET /<token>/catalog/series/pf-anime-new.json` | Anime series mới |
-| `GET /<token>/catalog/movie/pf-recommended/skip=100.json` | Trang kế tiếp, tối đa 100 kết quả / trang (chuẩn Stremio); Discover trực tiếp hỗ trợ skip theo số kết quả thực nhận, Search xét tối đa 100 ứng viên |
+| `GET /<token>/catalog/movie/pf-recommended/skip=30.json` | Trang gợi ý tiếp theo sau khi đã nhận 30 mục. Stremio gửi skip bằng tổng số kết quả đã nhận |
 | `GET /<token>/meta/series/<imdb-id>.json` | Chi tiết từ Cinemeta, giữ episode IDs thật |
 
 Profile body bắt buộc `genres: string[]`, `favorites: string[]` (tối đa 10). Tùy chọn: `region`, `platforms`, `preferredOrigins`, `preferAnime`, `syncLibrary`, `syncPlayback`. POST hỗ trợ `watched: string[]` tối đa 50; PUT không thay toàn bộ watched để tránh đè callback, dùng interactions từng tác phẩm. Khi PUT bỏ các tùy chọn này thì giữ giá trị hiện tại. Có thể yêu cầu `registrationKey` khi tạo nếu server bật `REGISTRATION_KEY`. IMDb IDs không còn bị khóa vào thư viện mẫu; phải resolve được qua metadata.
