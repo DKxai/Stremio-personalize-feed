@@ -35,7 +35,7 @@ after(async()=>{await app?.close();await db?.$disconnect();rmSync(dir,{recursive
 
 test('manifest exposes separate Home rows, genre filtering and search-only rows, with library tracking opt-in settings',async()=>{
   const m=(await app.inject('/'+token+'/manifest.json')).json();
-  assert.equal(m.version,'0.4.4');assert.equal(m.catalogs.length,22);
+  assert.equal(m.version,'0.5.0');assert.equal(m.catalogs.length,25);
   const home=m.catalogs.filter((c:any)=>!c.extra.some((e:any)=>e.isRequired));assert.equal(home.length,15);
   for (const name of ['lang-ko', 'lang-en', 'lang-ja', 'lang-zh', 'anime-season', 'anime-episodes']) {
     assert.deepEqual(home.filter((c: any) => c.id === 'pf-' + name).map((c: any) => c.type), ['series']);

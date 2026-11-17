@@ -2,6 +2,8 @@ import type { Title, MediaType, Profile, EpisodeAirDate } from '../shared/types.
 import { feedPreferences, platformPriority, LANGUAGES, GENRES } from '../shared/preferences.js';
 import { TtlCache } from '../shared/cache.js';
 import { TmdbClient, UpstreamUnavailable } from './tmdb.js';
+import type { TvdbClient } from './tvdb.js';
+import { showCountries } from '../recommendation/views.js';
 import type { MetadataStore } from './store.js';
 import { TITLES } from './fixtures.js';
 import type { CatalogQuery } from '../recommendation/catalog-query.js';
@@ -10,7 +12,7 @@ import { airingWindow, latestRelease, matchesAiring, vietnamDate } from '../reco
 import { dateOnly, daysAgo, inReleaseWindow, releaseWindow, releaseAge, recommendationDay } from '../recommendation/dates.js';
 
 const genreIds: Record<string, number> = { Action: 28, Adventure: 12, Animation: 16, Comedy: 35, Crime: 80, Documentary: 99, Drama: 18, Family: 10751, Fantasy: 14, History: 36, Horror: 27, Music: 10402, Mystery: 9648, Romance: 10749, 'Sci-Fi': 878, Thriller: 53, War: 10752, Western: 37 };
-const genreNames = Object.fromEntries(Object.entries(genreIds).map(([name, id]) => [id, name]));
+const genreNames: Record<number, string> = { ...Object.fromEntries(Object.entries(genreIds).map(([name, id]) => [id, name])), 10763: 'News', 10764: 'Reality', 10767: 'Talk' };
 const tvGenres = (genre: string) => ['Action', 'Adventure'].includes(genre) ? 10759 : ['Sci-Fi', 'Fantasy'].includes(genre) ? 10765 : ['Romance', 'History'].includes(genre) ? 18 : ['Horror', 'Thriller'].includes(genre) ? 9648 : genre === 'Music' ? 99 : genre === 'War' ? 10768 : genreIds[genre];
 const names = (values: any[] = [], limit = 12): string[] => values.filter(v => typeof v?.name === 'string').slice(0, limit).map(v => v.name);
 const validDate = (value: unknown) => typeof value === 'string' && Number.isFinite(releaseAge(value));
@@ -36,7 +38,7 @@ function compactDetail(detail: any) {
     last_episode_to_air: detail.last_episode_to_air && compactEpisode(detail.last_episode_to_air),
     next_episode_to_air: detail.next_episode_to_air && compactEpisode(detail.next_episode_to_air),
     imdb_id: detail.imdb_id,
-    external_ids: { imdb_id: detail.external_ids?.imdb_id },
+    external_ids: { imdb_id: detail.external_ids?.imdb_id, tvdb_id: detail.external_ids?.tvdb_id },
     title: detail.title, name: detail.name, original_title: detail.original_title, original_name: detail.original_name,
     release_date: detail.release_date, first_air_date: detail.first_air_date, adult: detail.adult,
     origin_country: detail.origin_country,
@@ -64,8 +66,11 @@ function episodeDate(value: any): EpisodeAirDate | undefined {
   return { date: value.air_date, season: value.season_number, episode: value.episode_number };
 }
 
-export interface CandidateBatch { titles: Title[]; revision: string; source: 'tmdb' | 'fixtures' }
+export interface CandidateBatch { more?: boolean; titles: Title[]; revision: string; source: 'tmdb' | 'fixtures' }
+export interface DiscoverBatch { titles: Title[]; more: boolean }
 export interface LibrarySource {
+  searchPage?(query: string, region: string, type?: MediaType, page?: number): Promise<DiscoverBatch>;
+  discoverPage?(profile: Profile, type: MediaType, catalog: CatalogId, page: number, genre?: string, country?: string): Promise<DiscoverBatch>;
   readonly mode: 'tmdb' | 'fixtures' | 'unconfigured';
   candidates(profile: Profile, type: MediaType, catalog: CatalogId, filters?: Pick<CatalogQuery, 'genre'>): Promise<CandidateBatch>;
   resolve(id: string, type?: MediaType, region?: string): Promise<Title | undefined>;
@@ -78,7 +83,7 @@ export class LiveLibrary implements LibrarySource {
   private readonly retry = new TtlCache<boolean>(100, RETRY_DELAY);
   private refreshing = 0;
   private readonly pending = new Map<string, Promise<CandidateBatch>>();
-  constructor(private readonly client: TmdbClient, private readonly store?: MetadataStore, private readonly now: () => Date = () => new Date()) {}
+  constructor(private readonly client: TmdbClient, private readonly store?: MetadataStore, private readonly now: () => Date = () => new Date(), private readonly tvdb?: TvdbClient) {}
 
   async resolve(id: string, type?: MediaType, region = 'US'): Promise<Title | undefined> {
     if (!/^tt\d{7,10}$/.test(id)) return undefined;
@@ -98,7 +103,14 @@ export class LiveLibrary implements LibrarySource {
     const media = type === 'movie' ? 'movie' : 'tv';
     const d = await this.client.get(`${media}/${id}`, { append_to_response: 'external_ids,keywords,credits,watch/providers' }, type === 'series' ? 3 * 3_600_000 : 86_400_000, compactDetail);
     if (!d) return undefined;
-    const imdb = d.imdb_id || d.external_ids?.imdb_id;
+    let imdb = d.imdb_id || d.external_ids?.imdb_id;
+    const tvdbId = d.external_ids?.tvdb_id;
+    const show = type === 'series' && d.genres?.some((g: { id: number }) => [10764, 10767].includes(g.id));
+    const lookup = Number.isSafeInteger(tvdbId) && tvdbId > 0 ? tvdbId : imdb;
+    const extra = type === 'series' && lookup && (show || !imdb)
+      ? await this.tvdb?.series(lookup) : undefined;
+    if (!imdb) imdb = extra?.imdb;
+    const tags = extra && (!extra.imdb || extra.imdb === imdb) ? extra.tags : [];
     const releaseDate = type === 'movie' ? d.release_date : d.first_air_date;
     if (d.adult === true || !/^tt\d{7,10}$/.test(imdb ?? '') || !validDate(releaseDate) || (!allowUpcoming && releaseDate > dateOnly(vietnamDate(this.now())))) return undefined;
     const availability = d['watch/providers']?.results?.[region];
@@ -113,7 +125,7 @@ export class LiveLibrary implements LibrarySource {
       originalName: d.original_title || d.original_name,
       year: Number(releaseDate.slice(0, 4)), releaseDate, genres,
       cast: names(d.credits?.cast, 8), directors: names((d.credits?.crew || []).filter((c: any) => c.job === 'Director'), 4),
-      keywords,
+      keywords: [...new Set([...keywords.map(k => k.toLowerCase()), ...tags])],
       // Bayesian shrinkage stops a single 10/10 vote dominating brand-new titles.
       quality: ((Number(d.vote_average) || 0) * (Number(d.vote_count) || 0) + 6 * 50) / ((Number(d.vote_count) || 0) + 50) / 10,
       popularity: Math.min(1, Math.log1p(Math.max(0, Number(d.popularity) || 0)) / Math.log(1001)),
@@ -136,19 +148,52 @@ export class LiveLibrary implements LibrarySource {
     return title;
   }
 
-  async search(query: string, region: string, type?: MediaType, page = 1): Promise<Title[]> {
+  async search(query: string, region: string, type?: MediaType, page = 1) {
+    return (await this.searchPage(query, region, type, page)).titles;
+  }
+
+  async searchPage(query: string, region: string, type?: MediaType, page = 1): Promise<DiscoverBatch> {
     if (/^tt\d{7,10}$/.test(query)) {
-      if (page > 1) return [];
-      const title = await this.resolve(query, type, region); return title ? [title] : [];
+      if (page > 1) return { titles: [], more: false };
+      const title = await this.resolve(query, type, region); return { titles: title ? [title] : [], more: false };
     }
     const data = await this.client.get(type ? `search/${type === 'movie' ? 'movie' : 'tv'}` : 'search/multi', { query, include_adult: 'false', page });
     const rows = (data?.results || []).filter((r: any) => r.adult !== true && (type || ['movie', 'tv'].includes(r.media_type))).slice(0, type ? 20 : 12);
     const titles = await Promise.all(rows.map((r: any) => this.detail(r.id, type || (r.media_type === 'movie' ? 'movie' : 'series'), region)));
     // Keep TMDB relevance and alias matching, including Japanese/Korean/Chinese names.
-    return titles.filter((t): t is Title => Boolean(t));
+    return { titles: titles.filter((t): t is Title => Boolean(t)), more: page < Math.min(data?.total_pages ?? 1, 500) };
   }
 
-  async candidates(profile: Profile, type: MediaType, catalog: CatalogId, filters: Pick<CatalogQuery, 'genre'> = {}): Promise<CandidateBatch> {
+  async discoverPage(profile: Profile, type: MediaType, catalog: CatalogId, page: number, genre?: string, country?: string): Promise<DiscoverBatch> {
+    if (catalog !== 'tv-shows' && catalog !== 'animation') {
+      const batch = await this.candidates(profile, type, catalog, { genre }, page);
+      return { titles: batch.titles, more: Boolean(batch.more) };
+    }
+    const media = type === 'movie' ? 'movie' : 'tv';
+    const selectedGenre = genre && (type === 'movie' ? genreIds[genre] : tvGenres(genre));
+    const params: Record<string, string | number> = { page, include_adult: 'false', sort_by: 'popularity.desc' };
+    if (selectedGenre) params.with_genres = selectedGenre;
+    if (type === 'series') params.without_genres = '10763,10767,10764';
+    if (catalog === 'animation') params.with_genres = selectedGenre && selectedGenre !== 16 ? '16,' + selectedGenre : 16;
+    if (catalog === 'tv-shows') Object.assign(params, { with_genres: '10764|10767', without_genres: '10763' });
+    params[type === 'movie' ? 'primary_release_date.lte' : 'first_air_date.lte'] = dateOnly(vietnamDate(this.now()));
+    const countries = catalog === 'tv-shows' ? (country ? [country] : Object.values(showCountries)) : [undefined];
+    const lists = await Promise.all(countries.map(origin => this.client.get('discover/' + media,
+      origin ? { ...params, with_origin_country: origin } : params)));
+    const ids = new Set<number>();
+    for (let i = 0; i < 20; i++) for (const list of lists) {
+      const row = list?.results?.[i];
+      if (Number.isInteger(row?.id) && !row.adult) ids.add(row.id);
+    }
+    const titles = await Promise.all([...ids].map(id => this.detail(id, type, feedPreferences(profile).region)));
+    return {
+      titles: titles.filter((t): t is Title => Boolean(t && (!genre || t.genres.includes(genre))
+        && (catalog !== 'tv-shows' || countries.some(c => c && t.originCountries?.includes(c))))),
+      more: lists.some(list => page < Math.min(list?.total_pages ?? 1, 500)),
+    };
+  }
+
+  async candidates(profile: Profile, type: MediaType, catalog: CatalogId, filters: Pick<CatalogQuery, 'genre'> = {}, round = 0): Promise<CandidateBatch> {
     const prefs = feedPreferences(profile);
     const pool = catalog === 'because' || catalog === 'top' ? 'recommended' : catalog;
     const usesOrigins = pool === 'recommended' || pool === 'gems';
@@ -157,7 +202,7 @@ export class LiveLibrary implements LibrarySource {
     const usesPlatforms = catalog === 'trending' || catalog === 'recent' || catalog.startsWith('new');
     const usesGenres = ['recommended', 'because', 'genres', 'top', 'gems'].includes(catalog) && !filters.genre;
     const key = SNAPSHOT_PREFIX + JSON.stringify([
-      type, pool, prefs.region, usesPlatforms ? [...prefs.platforms].sort() : [],
+      type, pool, round, prefs.region, usesPlatforms ? [...prefs.platforms].sort() : [],
       usesGenres ? [...profile.genres].sort() : [], filters.genre,
       usesOrigins ? origins : [], usesLanguages ? [...prefs.preferredLanguages].sort() : [],
     ]);
@@ -178,7 +223,7 @@ export class LiveLibrary implements LibrarySource {
     if (!task) {
       if (usable && this.refreshing >= MAX_BACKGROUND_REFRESHES) return usable.batch;
       if (usable) this.refreshing++;
-      task = this.load(profile, type, pool, filters).then(async batch => {
+      task = this.load(profile, type, pool, filters, round).then(async batch => {
         const refreshedAt = this.now().getTime();
         const snapshot = { batch: { ...batch, revision: String(refreshedAt) }, refreshedAt };
         this.rows.set(key, snapshot);
@@ -200,7 +245,7 @@ export class LiveLibrary implements LibrarySource {
     return usable.batch;
   }
 
-  private async load(profile: Profile, type: MediaType, catalog: CatalogId, filters: Pick<CatalogQuery, 'genre'> = {}): Promise<CandidateBatch> {
+  private async load(profile: Profile, type: MediaType, catalog: CatalogId, filters: Pick<CatalogQuery, 'genre'> = {}, round = 0): Promise<CandidateBatch> {
     const prefs = feedPreferences(profile);
     const origins = [...prefs.preferredOrigins].sort();
     const genres = [...profile.genres].sort();
@@ -257,14 +302,25 @@ export class LiveLibrary implements LibrarySource {
       common[type === 'movie' ? 'primary_release_date.gte' : 'first_air_date.gte'] = daysAgo(8 * 365, vietnamDate(now));
     }
     const requests: Promise<any>[] = [];
+    let more = false;
+    // Sources which already read two adjacent TMDB pages advance by two per round.
+    const offset = Math.max(0, round - 1);
+    const add = (path: string, params: Record<string, string | number>, stride = 1, ttl?: number) => {
+      const page = Number(params.page ?? 1) + offset * stride;
+      if (page > 500) return;
+      requests.push(this.client.get(path, { ...params, page }, ttl).then(data => {
+        if (page + stride <= Math.min(data?.total_pages ?? 1, 500)) more = true;
+        return data;
+      }));
+    };
     if (catalog === 'trending') {
       // Real weekly TMDB ranks; availability is checked per title and selected territory below.
-      for (const page of [1, 2]) requests.push(this.client.get(`trending/${media}/week`, { page }, 2 * 3_600_000));
+      for (const page of [1, 2]) add(`trending/${media}/week`, { page }, 2, 2 * 3_600_000);
     } else if (language) {
-      for (const code of language.codes) requests.push(this.client.get(`discover/${media}`, { ...common, with_original_language: code }));
-      if (language.codes.length === 1) requests.push(this.client.get(`discover/${media}`, { ...common, with_original_language: language.codes[0], page: 2 }));
+      for (const code of language.codes) add(`discover/${media}`, { ...common, with_original_language: code }, language.codes.length === 1 ? 2 : 1);
+      if (language.codes.length === 1) add(`discover/${media}`, { ...common, with_original_language: language.codes[0], page: 2 }, 2);
     } else {
-      requests.push(this.client.get(`discover/${media}`, common));
+      add(`discover/${media}`, common, catalog === 'recommended' ? 1 : 2);
       const secondPage = catalog === 'recommended'
         ? {
           ...common,
@@ -274,24 +330,24 @@ export class LiveLibrary implements LibrarySource {
           page: 1 + recommendationDay(now) % 3,
         }
         : { ...common, page: 2 };
-      requests.push(this.client.get(`discover/${media}`, secondPage));
+      add(`discover/${media}`, secondPage, catalog === 'recommended' ? 1 : 2);
       if (['recommended', 'because', 'top', 'gems'].includes(catalog)) {
         if (catalog === 'recommended' && prefs.preferredLanguages.length > 0 && prefs.preferredLanguages.length < LANGUAGES.length) {
           // Rotate language coverage within the existing 40-title detail cap.
           const preferred = LANGUAGES.filter(item => prefs.preferredLanguages.includes(item.id));
           const index = recommendationDay(now) % Math.max(1, preferred.length);
           const mainLanguage = preferred[index];
-          if (mainLanguage) requests.push(this.client.get(`discover/${media}`, { ...common, with_original_language: mainLanguage.codes[0] }));
+          if (mainLanguage) add(`discover/${media}`, { ...common, with_original_language: mainLanguage.codes[0] });
         }
         if (origins.length) {
-          requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: origins.join('|'), page: 1 }));
+          add(`discover/${media}`, { ...common, with_origin_country: origins.join('|'), page: 1 });
         }
         if (origins.includes('JP') && (prefs.preferredLanguages.length === 0 || prefs.preferredLanguages.length === LANGUAGES.length || catalog !== 'recommended')) {
-          requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: 'JP', without_genres: [common.without_genres, '16'].filter(Boolean).join(','), page: 1 }));
+          add(`discover/${media}`, { ...common, with_origin_country: 'JP', without_genres: [common.without_genres, '16'].filter(Boolean).join(','), page: 1 });
         }
         const preferredGenres = (filters.genre ? [filters.genre] : genres).map(g => type === 'movie' ? genreIds[g] : tvGenres(g)).filter(Boolean).join('|');
-        if (preferredGenres) requests.push(this.client.get(`discover/${media}`, { ...common, with_genres: preferredGenres, page: 1 }));
-        requests.push(this.client.get(`discover/${media}`, { ...common, with_genres: filters.genre ? `16,${type === 'movie' ? genreIds[filters.genre] : tvGenres(filters.genre)}` : 16, with_origin_country: 'JP', page: 1 }));
+        if (preferredGenres) add(`discover/${media}`, { ...common, with_genres: preferredGenres, page: 1 });
+        add(`discover/${media}`, { ...common, with_genres: filters.genre ? `16,${type === 'movie' ? genreIds[filters.genre] : tvGenres(filters.genre)}` : 16, with_origin_country: 'JP', page: 1 });
       }
     }
     const pages = await Promise.all(requests);
@@ -303,7 +359,7 @@ export class LiveLibrary implements LibrarySource {
       for (let i = 0; i < 20; i++) for (const page of pages) candidateRows.push(page.results?.[i]);
     }
     const ids = [...new Set<number>(candidateRows
-      .filter(row => row && row.adult !== true && Number.isInteger(row.id)).map(row => row.id))].slice(0, 40);
+      .filter(row => row && row.adult !== true && Number.isInteger(row.id)).map(row => row.id))].slice(0, round ? undefined : 40);
     const titles = (await Promise.all(ids.map(id => this.detail(id, type, prefs.region, catalog === 'anime-upcoming')))).filter((t): t is Title => Boolean(t));
     const filtered = titles.filter(t => !window || inReleaseWindow(catalog === 'recent' ? latestRelease(t, vietnamDate(now)) : t.releaseDate, ...window, vietnamDate(now)))
       .filter(t => matchesAiring(t, catalog, now))
@@ -316,7 +372,7 @@ export class LiveLibrary implements LibrarySource {
       .filter(t => !catalog.startsWith('anime') || t.isAnime)
       .filter(t => !filters.genre || t.genres.includes(filters.genre));
     return {
-      titles: filtered.map(t => catalog === 'trending' ? { ...t, weeklyTrend: 1 - ids.indexOf(t.tmdbId!) / Math.max(1, ids.length) } : t),
+      more, titles: filtered.map(t => catalog === 'trending' ? { ...t, weeklyTrend: 1 - ids.indexOf(t.tmdbId!) / Math.max(1, ids.length) } : t),
       revision: `${today}:${Math.floor(this.now().getTime() / 1_800_000)}`, source: 'tmdb',
     };
   }

@@ -1,3 +1,4 @@
+import { TvdbClient } from '../../packages/metadata/tvdb.js';
 import Fastify, { LogController, type FastifyReply, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
@@ -59,7 +60,8 @@ export async function buildServer(db: PrismaClient, config: Config, metadata: Me
   const profiles = new ProfileService(db);
   const store = new MetadataStore(db);
   const library = libraryOverride || ((config.tmdbToken || config.tmdbApiKey)
-    ? new LiveLibrary(new TmdbClient({ token: config.tmdbToken, apiKey: config.tmdbApiKey }, store), store)
+    ? new LiveLibrary(new TmdbClient({ token: config.tmdbToken, apiKey: config.tmdbApiKey }, store), store, undefined,
+      config.tvdbKey ? new TvdbClient(config.tvdbKey, config.tvdbPin) : undefined)
     : config.demoMode ? new FixtureLibrary() : new UnconfiguredLibrary());
   const feed = new FeedService(library, new CommunitySignals(db));
   await store.prune();
@@ -104,7 +106,7 @@ export async function buildServer(db: PrismaClient, config: Config, metadata: Me
 
   app.get('/health', async () => {
     await db.$queryRaw`SELECT 1`;
-    return { status: 'ok', version: '0.4.4', metadata: library.mode, feedReady: library.mode === 'tmdb', storage: config.storageMode };
+    return { status: 'ok', version: '0.5.0', metadata: library.mode, feedReady: library.mode === 'tmdb', storage: config.storageMode };
   });
   app.get('/', async (_request, reply) => reply.redirect('/configure'));
   app.get('/configure', async (_request, reply) => reply.type('text/html').send(configureHtml));
