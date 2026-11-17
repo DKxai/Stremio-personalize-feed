@@ -1,5 +1,5 @@
 import type { Title, MediaType, Profile } from '../shared/types.js';
-import { feedPreferences, PLATFORMS, GENRES } from '../shared/preferences.js';
+import { feedPreferences, platformPriority, GENRES } from '../shared/preferences.js';
 import { TtlCache } from '../shared/cache.js';
 import { TmdbClient, UpstreamUnavailable } from './tmdb.js';
 import type { MetadataStore } from './store.js';
@@ -14,7 +14,6 @@ const tvGenres = (genre: string) => ['Action', 'Adventure'].includes(genre) ? 10
 const names = (values: any[] = [], limit = 12): string[] => values.filter(v => typeof v?.name === 'string').slice(0, limit).map(v => v.name);
 const validDate = (value: unknown) => typeof value === 'string' && Number.isFinite(releaseAge(value));
 const countryMatch = (title: Title, countries: string[]) => title.originCountries?.some(c => countries.includes(c));
-const providerMatches = (providerName: string, ids: string[]) => PLATFORMS.some(p => ids.includes(p.id) && (p.matches as readonly string[]).some(n => n.toLowerCase() === providerName.toLowerCase()));
 const SNAPSHOT_PREFIX = 'catalog:v1:';
 const REFRESH_INTERVAL = 30 * 60_000;
 const SNAPSHOT_MAX_AGE = 24 * 60 * 60_000;
@@ -136,7 +135,7 @@ export class LiveLibrary implements LibrarySource {
     const usesPlatforms = catalog === 'trending' || catalog.startsWith('new');
     const usesGenres = ['recommended', 'because', 'genres', 'top', 'gems'].includes(catalog) && !filters.genre;
     const key = SNAPSHOT_PREFIX + JSON.stringify([
-      type, pool, prefs.region, usesPlatforms ? [...prefs.platforms].sort() : [],
+      type, pool === 'trending' ? 'trending-v2' : pool, prefs.region, usesPlatforms ? [...prefs.platforms].sort() : [],
       usesGenres ? [...profile.genres].sort() : [], filters.genre,
       usesOrigins ? origins : [],
     ]);
@@ -193,7 +192,7 @@ export class LiveLibrary implements LibrarySource {
     common[type === 'movie' ? 'primary_release_date.gte' : 'first_air_date.gte'] = daysAgo(3 * 365, this.now());
     if (platformRow && catalog !== 'trending') {
       const providers = await this.client.get(`watch/providers/${media}`, { watch_region: prefs.region }, 86_400_000);
-      const ids = (providers.results || []).filter((p: any) => typeof p.provider_name === 'string' && providerMatches(p.provider_name, prefs.platforms)).map((p: any) => p.provider_id);
+      const ids = (providers.results || []).filter((p: any) => typeof p.provider_name === 'string' && platformPriority([p.provider_name], prefs.platforms) >= 0).map((p: any) => p.provider_id);
       if (!ids.length) return { titles: [], revision: today, source: 'tmdb' };
       Object.assign(common, { watch_region: prefs.region, with_watch_providers: ids.join('|'), with_watch_monetization_types: 'flatrate' });
     }
@@ -240,16 +239,18 @@ export class LiveLibrary implements LibrarySource {
       }
     }
     const pages = await Promise.all(requests);
-    // Interleave pools so Korean, Chinese and anime candidates survive the request budget.
-    const interleaved: number[] = [];
-    for (let i = 0; i < 20; i++) for (const page of pages) {
-      const row = page.results?.[i];
-      if (row && row.adult !== true && Number.isInteger(row.id)) interleaved.push(row.id);
+    const candidateRows = [];
+    if (catalog === 'trending') {
+      for (const page of pages) candidateRows.push(...(page.results ?? []).slice(0, 20));
+    } else {
+      // Interleave discovery pools to keep a mix of origins and anime within the lookup budget.
+      for (let i = 0; i < 20; i++) for (const page of pages) candidateRows.push(page.results?.[i]);
     }
-    const ids = [...new Set(interleaved)].slice(0, 40);
+    const ids = [...new Set<number>(candidateRows
+      .filter(row => row && row.adult !== true && Number.isInteger(row.id)).map(row => row.id))].slice(0, 40);
     const titles = (await Promise.all(ids.map(id => this.detail(id, type, prefs.region)))).filter((t): t is Title => Boolean(t));
     const filtered = titles.filter(t => !window || inReleaseWindow(t.releaseDate, ...window, this.now()))
-      .filter(t => !platformRow || t.providers?.some(name => providerMatches(name, prefs.platforms)))
+      .filter(t => !platformRow || platformPriority(t.providers ?? [], prefs.platforms) >= 0)
       .filter(t => catalog !== 'korean' || countryMatch(t, ['KR']))
       .filter(t => catalog !== 'chinese' || countryMatch(t, ['CN', 'TW', 'HK']))
       .filter(t => catalog !== 'japanese' || (countryMatch(t, ['JP']) && !t.genres.includes('Animation')))

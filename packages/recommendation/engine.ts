@@ -1,6 +1,6 @@
 import type { Profile, Title, MediaType } from '../shared/types.js';
 import { TtlCache } from '../shared/cache.js';
-import { feedPreferences } from '../shared/preferences.js';
+import { feedPreferences, platformPriority } from '../shared/preferences.js';
 import { dateOnly, recommendationDay, releaseAge, releaseWindow } from './dates.js';
 import type { CatalogId } from './catalogs.js';
 
@@ -91,9 +91,13 @@ export class RecommendationEngine {
       .filter(t => !catalog.startsWith('anime') || t.isAnime)
       .filter(t => catalog !== 'trending' || t.weeklyTrend !== undefined)
       .filter(t => catalog !== 'gems' || t.popularity <= 0.45)
-      .map(title => ({ title, age: releaseAge(title.releaseDate, now) }))
-      .filter(({ age }) => age >= 0 && (!window || (age >= window[0] && age <= window[1])))
-      .map(({ title, age }) => {
+      .map(title => ({
+        title,
+        age: releaseAge(title.releaseDate, now),
+        platform: catalog === 'trending' ? platformPriority(title.providers ?? [], prefs.platforms) : 0,
+      }))
+      .filter(({ age, platform }) => platform >= 0 && age >= 0 && (!window || (age >= window[0] && age <= window[1])))
+      .map(({ title, age, platform }) => {
         const candidate = features(title);
         const genre = overlap(preferredGenres, candidate.genres);
         const match = catalog === 'because' || catalog === 'genres' ? 0 : Math.max(0,
@@ -118,14 +122,14 @@ export class RecommendationEngine {
         if (catalog === 'recommended') score += 0.22 * personalFreshness + originWeight * origin + 0.1 * anime;
         else if (catalog !== 'trending') score += 0.25 * freshness + originWeight * origin + 0.1 * anime;
         if (['recommended', 'top', 'gems'].includes(catalog)) score += 0.1 * (community.get(title.id) ?? 0);
-        return { title, score, genres: candidate.genres, genre };
+        return { title, score, platform, genres: candidate.genres, genre };
       })
       .filter(row => catalog !== 'genres' || !preferredGenres.size || row.genre > 0)
-      .sort((a, b) => b.score - a.score || a.title.id.localeCompare(b.title.id));
+      .sort((a, b) => a.platform - b.platform || b.score - a.score || a.title.id.localeCompare(b.title.id));
 
     // Greedy reranking penalizes repetitive adjacent recommendations without randomness.
     const result: Title[] = [];
-    if (catalog === 'genres' || catalog === 'top') {
+    if (catalog === 'trending' || catalog === 'genres' || catalog === 'top') {
       for (const row of ranked) result.push(row.title);
     } else {
       const recentGenres: ReadonlySet<string>[] = [];

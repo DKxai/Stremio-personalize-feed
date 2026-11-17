@@ -160,6 +160,12 @@ test('live TMDB catalog flow accepts searched IMDb IDs, persists feed preference
       const response=await live.inject('/'+liveToken+'/catalog/'+type+'/pf-'+id+'.json');assert.equal(response.statusCode,200,response.body);
       const metas=response.json().metas;assert(metas.length>0,type+id);
       assert(!metas.some((m:{id:string})=>m.id==='tt1000001'));
+      if (id === 'trending') {
+        const platforms = metas.map((m: { description: string }) => m.description.includes('Có trên: Netflix') ? 'Netflix' : 'Disney Plus');
+        const firstDisney = platforms.indexOf('Disney Plus');
+        assert(firstDisney > 0);
+        assert(!platforms.slice(firstDisney).includes('Netflix'));
+      }
       if(id==='new30') assert(metas.every((m:{description:string})=>inReleaseWindow(m.description.slice(0,10),0,29,clock)));
       if(id==='anime-new') assert(metas.every((m:{description:string})=>inReleaseWindow(m.description.slice(0,10),0,89,clock)));
     }

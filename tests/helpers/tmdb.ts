@@ -10,7 +10,10 @@ export function mockTmdb(requests: URL[] = [], clock = now) {
     const path = url.pathname.replace('/3/', '');
     let result: any;
     if (path.startsWith('watch/providers/')) result={results:[{provider_id:8,provider_name:'Netflix'},{provider_id:337,provider_name:'Disney Plus'},{provider_id:9999,provider_name:'HBO Max'}]};
-    else if (/^(trending|discover)/.test(path)) result={results:Array.from({length:20},(_,i)=>({id:i+1,adult:i===19}))};
+    else if (/^(trending|discover)/.test(path)) {
+      const offset = path.startsWith('trending/') && url.searchParams.get('page') === '2' ? 20 : 0;
+      result = { results: Array.from({ length: 20 }, (_, i) => ({ id: offset + i + 1, adult: i === 19 })) };
+    }
     else if (path.startsWith('find/')) { const id=Number(path.split('/')[1]?.replace('tt',''))-1000000;result={movie_results:id>0 && id%2?[{id}]:[],tv_results:id>0 && id%2===0?[{id}]:[]}; }
     else if (path==='search/movie') result={results:[{id:1},{id:3}]};
     else if (path==='search/tv') result={results:[{id:2},{id:4}]};

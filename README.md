@@ -43,7 +43,7 @@ Mặc định dùng **US** để gộp thư viện các dịch vụ quốc tế,
 - Ngày tính theo UTC, cập nhật theo ngày hiện tại, không cố định theo năm phát triển. Không nhận tác phẩm chưa phát hành, ngày không hợp lệ hoặc không có ngày vào mục mới.
 - Movie dùng **ngày phát hành đầu tiên**; Series dùng **ngày phát tập đầu tiên**. Series cũ có mùa mới không được gắn thành series mới.
 - Phim mới đang có trên dịch vụ **không đồng nghĩa** dịch vụ vừa thêm phim. TMDB không cung cấp lịch sử đầy đủ ngày được thêm lên Netflix/Disney+/HBO Max. Muốn catalog “vừa thêm lên nền tảng”, cần nguồn dữ liệu lịch sử riêng.
-- Weekly trending là xu hướng **TMDB**, không phải tổng hợp Top 10 chính thức của từng dịch vụ. Một mục xu hướng gộp Netflix, Disney+, HBO Max/Max, Prime Video, Apple TV+, Hulu, Crunchyroll, Viki, iQIYI và WeTV được lọc theo lựa chọn của profile.
+- Mục **Xu hướng tuần này · Các nền tảng** gộp xu hướng tuần của TMDB theo thị trường và dịch vụ đã chọn. Thứ tự là Netflix, Disney+, HBO Max/Max, Prime Video, Apple TV+, Crunchyroll, Viki, iQIYI, WeTV rồi Hulu. Phim có trên nhiều dịch vụ xuất hiện một lần, ở nhóm nền tảng được ưu tiên nhất trong những dịch vụ đã chọn.
 - Dữ liệu nền tảng là subscription (`flatrate`), theo khu vực, từ **JustWatch qua TMDB**. Không coi kết quả chỉ có thuê/mua là đang nằm trong gói đăng ký.
 - Catalog phim Hàn/Trung/Nhật/anime tìm nội dung rộng hơn và có thể gồm phim chưa có trên các nền tảng đã chọn; chỉ các hàng xu hướng và new30/60/90 bắt buộc khớp nền tảng. Anime mới là tác phẩm anime mới, không phải lịch chiếu tập mới của toàn bộ anime đang phát.
 - Không bù kết quả thiếu bằng fixture hoặc phim ngoài mốc ngày. Khu vực/nền tảng ít dữ liệu có thể trả danh sách trống.

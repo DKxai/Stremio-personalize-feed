@@ -4,12 +4,19 @@ export const PLATFORMS = [
   { id: 'max', name: 'HBO Max / Max', matches: ['HBO Max', 'Max', 'HBO Max Amazon Channel', 'Max Amazon Channel'] },
   { id: 'prime', name: 'Prime Video', matches: ['Amazon Prime Video', 'Amazon Prime Video with Ads'] },
   { id: 'apple', name: 'Apple TV+', matches: ['Apple TV Plus', 'Apple TV'] },
-  { id: 'hulu', name: 'Hulu', matches: ['Hulu'] },
   { id: 'crunchyroll', name: 'Crunchyroll', matches: ['Crunchyroll', 'Crunchyroll Amazon Channel'] },
   { id: 'viki', name: 'Rakuten Viki', matches: ['Rakuten Viki'] },
   { id: 'iqiyi', name: 'iQIYI', matches: ['iQIYI'] },
   { id: 'wetv', name: 'WeTV', matches: ['WeTV'] },
+  { id: 'hulu', name: 'Hulu', matches: ['Hulu'] },
 ] as const;
+
+export function platformPriority(providerNames: readonly string[], selectedPlatforms: readonly string[]): number {
+  const names = new Set(providerNames.map(name => name.toLowerCase()));
+  return PLATFORMS.findIndex(platform => selectedPlatforms.includes(platform.id)
+    && platform.matches.some(name => names.has(name.toLowerCase())));
+}
+
 export const REGIONS = ['US', 'VN', 'KR', 'JP', 'TW', 'HK', 'SG', 'GB', 'AU', 'CA'] as const;
 export const ORIGINS = ['KR', 'CN', 'TW', 'HK', 'JP', 'US'] as const;
 export const GENRES = ['Action', 'Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Family', 'Fantasy', 'History', 'Horror', 'Music', 'Mystery', 'Romance', 'Sci-Fi', 'Thriller', 'War', 'Western'] as const;
