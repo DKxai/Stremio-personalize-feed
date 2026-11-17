@@ -3,6 +3,8 @@ export const CATALOGS = [
   { id: 'japanese', name: 'Phim Nhật dành cho bạn' },
   { id: 'korean', name: 'Phim Hàn dành cho bạn' },
   { id: 'chinese', name: 'Phim Trung dành cho bạn' },
+  { id: 'animation', name: 'Hoạt hình thế giới' },
+  { id: 'tv-shows', name: 'TV Show' },
   { id: 'anime', name: 'Anime dành cho bạn' },
   { id: 'anime-new', name: 'Anime mới · 90 ngày qua' },
   { id: 'trending', name: 'Xu hướng tuần này · Các nền tảng' },

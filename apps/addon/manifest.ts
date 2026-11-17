@@ -11,7 +11,7 @@ export function createManifest(configured = false, preferences: Partial<FeedPref
   const skip = { name: 'skip' as const, isRequired: false };
   const hasHistory = Boolean(preferences.favorites?.length || preferences.likes?.length || preferences.watched?.length || preferences.started?.length || preferences.saved?.length);
   return {
-    id: 'community.dkxai.personalizedfeed', version: '0.4.4', name: 'Personalized Feed',
+    id: 'community.dkxai.personalizedfeed', version: '0.5.0', name: 'Personalized Feed',
     description: 'Gợi ý theo gu, phim tiếng Hàn, Anh, Nhật và Trung, anime theo mùa, tập mới và xu hướng tuần theo nền tảng. TMDB / JustWatch.',
     types: ['movie', 'series'],
     resources: ['catalog', event('meta'), ...(configured && prefs.syncLibrary ? [event('library')] : []), ...(configured && prefs.syncPlayback ? [event('player')] : [])],

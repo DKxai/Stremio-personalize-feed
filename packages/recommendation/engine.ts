@@ -53,7 +53,7 @@ export class RecommendationEngine {
   private readonly cache = new TtlCache<Title[]>();
   constructor(private readonly titles: readonly Title[] = [], private readonly now: () => Date = () => new Date()) {}
 
-  recommend(profile: Profile, type: MediaType, catalog: CatalogId, candidates = this.titles, seeds = this.titles, revision = 'fixtures', community: ReadonlyMap<string, number> = new Map()): Title[] {
+  recommend(profile: Profile, type: MediaType, catalog: CatalogId, candidates = this.titles, seeds = this.titles, revision = 'fixtures', community: ReadonlyMap<string, number> = new Map(), previous: readonly Title[] = []): Title[] {
     const now = this.now();
     const day = recommendationDay(now);
     const today = vietnamDate(now);
@@ -89,6 +89,8 @@ export class RecommendationEngine {
     const unique = [...new Map(candidates.map(t => [`${t.type}:${t.id}`, t])).values()];
     const ranked = unique
       .filter(t => t.type === type && (!blocked.has(t.id) || (showingEpisodes && !dislikedIds.has(t.id))))
+      .filter(t => catalog !== 'animation' || (t.genres.includes('Animation') && !t.isAnime))
+      .filter(t => catalog !== 'tv-shows' || (t.type === 'series' && t.genres.some(g => g === 'Reality' || g === 'Talk') && !t.genres.includes('News')))
       .filter(t => matchesAiring(t, catalog, now))
       .filter(t => !language || ((language.codes as readonly string[]).includes(t.originalLanguage ?? '') && (language.id !== 'ja' || !t.isAnime)))
       .filter(t => catalog !== 'donghua' || (t.genres.includes('Animation') && t.originCountries?.some(code => ['CN', 'TW', 'HK'].includes(code))))
@@ -155,8 +157,8 @@ export class RecommendationEngine {
     if (catalog === 'trending' || catalog === 'genres' || catalog === 'top' || showingEpisodes || catalog === 'anime-upcoming') {
       for (const row of ranked) result.push(row.title);
     } else {
-      const recentGenres: ReadonlySet<string>[] = [];
-      const recentLanguages: string[] = [];
+      const recentGenres = previous.slice(-4).map(t => new Set(t.genres));
+      const recentLanguages = previous.slice(-3).map(t => t.originalLanguage ?? '');
       while (ranked.length) {
         let bestIndex = 0;
         let bestScore = -Infinity;
@@ -167,7 +169,7 @@ export class RecommendationEngine {
             repetition = Math.max(repetition, overlap(candidate.genres, genres));
           }
           const language = candidate.title.originalLanguage;
-          const languageRepetition = catalog === 'recommended' && result.length >= 2 && language
+          const languageRepetition = catalog === 'recommended' && result.length + previous.length >= 2 && language
             ? 0.04 * recentLanguages.filter(previous => previous === language).length : 0;
           const adjusted = candidate.score - 0.06 * repetition - languageRepetition;
           if (adjusted > bestScore) {
@@ -183,7 +185,7 @@ export class RecommendationEngine {
         if (recentGenres.length > 4) recentGenres.shift();
       }
     }
-    const output = rotatingCatalogs.has(catalog) ? rotateDiscoveries(result, day, personalRow && origins.length <= 2 ? origins : []) : result;
+    const output = !previous.length && rotatingCatalogs.has(catalog) ? rotateDiscoveries(result, day, personalRow && origins.length <= 2 ? origins : []) : result;
     const annotated = output.map((title, index) => {
       if (showingEpisodes && title.lastEpisode) {
         const { season, episode, date } = title.lastEpisode;
@@ -191,7 +193,7 @@ export class RecommendationEngine {
       }
       if (catalog === 'anime-upcoming') return { ...title, activityNote: `Dự kiến phát sóng ${upcomingDate(title, now)}` };
       if (catalog === 'recent' && title.type === 'series') return { ...title, activityNote: `Mùa mới · ${latestRelease(title, today)}` };
-      const genre = catalog === 'recommended' && index < 8 ? title.genres.find(genre => preferredGenres.has(genre)) : undefined;
+      const genre = catalog === 'recommended' && index + previous.length < 8 ? title.genres.find(genre => preferredGenres.has(genre)) : undefined;
       return genre ? { ...title, activityNote: `Hợp thể loại bạn chọn · ${genre}` } : title;
     });
     this.cache.set(key, annotated);

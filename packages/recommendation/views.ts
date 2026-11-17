@@ -14,6 +14,7 @@ export const animeThemes = {
 } as const;
 const languageViews = { 'Tiếng Hàn': 'lang-ko', 'Tiếng Anh': 'lang-en', 'Tiếng Nhật': 'lang-ja', 'Tiếng Trung': 'lang-zh' } as const;
 const originViews = { 'Hàn Quốc': 'korean', 'Nhật Bản': 'japanese', 'Trung Quốc, Đài Loan, Hồng Kông': 'chinese' } as const;
+export const showCountries: Record<string, string> = { 'Anh': 'GB', 'Nhật': 'JP', 'Hàn': 'KR', 'Trung Quốc': 'CN' };
 const libraryViews = { 'Đã lưu & Yêu thích': 'saved', 'Đã xem': 'watched' } as const;
 const viewSelections: Partial<Record<CatalogId, Readonly<Record<string, CatalogId>>>> = {
   recent: releaseViews, anime: animeViews, languages: languageViews, origins: originViews, library: libraryViews,
@@ -39,6 +40,8 @@ export function catalogViews(preferences: Partial<FeedPreferences> = {}, hasHist
   const languages = [...LANGUAGES].sort((a, b) =>
     Number(prefs.preferredLanguages.includes(b.id)) - Number(prefs.preferredLanguages.includes(a.id)));
   for (const language of languages) add(`lang-${language.id}`, prefs.homeExtras.includes('regional-movies') ? ['series', 'movie'] : ['series']);
+  add('tv-shows', ['series'], false, ['Tất cả', ...Object.keys(showCountries)]);
+  add('animation', both, false, ['Tất cả', ...genres.filter(g => g !== 'Animation')]);
   add('anime-season', ['series']);
   add('anime-episodes', ['series']);
   add('anime', ['series'], true, [...Object.keys(animeViews), ...Object.keys(animeThemes), ...genres]);
@@ -53,6 +56,11 @@ export function catalogViews(preferences: Partial<FeedPreferences> = {}, hasHist
 
 export function selectCatalog(profile: Profile, id: CatalogId, type: MediaType, option?: string) {
   const invalid = () => Object.assign(new Error('Bộ lọc không hợp lệ cho danh mục này.'), { statusCode: 400 });
+  if (id === 'tv-shows') {
+    if (type !== 'series' || (option && option !== 'Tất cả' && !Object.hasOwn(showCountries, option))) throw invalid();
+    return { profile, id, country: option ? showCountries[option] : undefined };
+  }
+  if (id === 'animation' && option === 'Tất cả') return { profile, id };
   if (option === undefined) {
     if (id === 'languages' || id === 'origins' || id === 'library') throw invalid();
     return { profile, id };

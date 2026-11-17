@@ -7,6 +7,8 @@ export interface Config {
   logLevel: string;
   tmdbToken: string;
   tmdbApiKey: string;
+  tvdbKey?: string;
+  tvdbPin?: string;
   demoMode: boolean;
 }
 
@@ -23,6 +25,7 @@ export function loadConfig(env = process.env): Config {
   const storageMode = env.STORAGE_MODE ?? 'persistent';
   if (!['persistent', 'ephemeral'].includes(storageMode)) throw new Error('Invalid STORAGE_MODE');
   return {
+    tvdbKey: env.TVDB_API_KEY, tvdbPin: env.TVDB_PIN,
     tmdbToken: env.TMDB_READ_ACCESS_TOKEN || '', tmdbApiKey: env.TMDB_API_KEY || '', demoMode: env.DEMO_MODE === 'true',
     port, host: env.HOST || '0.0.0.0', publicBaseUrl: url.origin,
     storageMode: storageMode as Config['storageMode'],

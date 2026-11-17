@@ -43,7 +43,7 @@ test('health, onboarding assets, unconfigured manifest and CORS work', async () 
   assert.match((await app.inject('/assets/configure.js')).body, /api\/profiles/);
   const response = await app.inject('/manifest.json');
   const manifest = response.json();
-  assert.equal(manifest.catalogs.length, 22);
+  assert.equal(manifest.catalogs.length, 25);
   assert.equal(manifest.behaviorHints.configurationRequired, true);
   assert.equal(response.headers['access-control-allow-origin'], '*');
   assert(!manifest.resources.includes('stream'));
@@ -68,7 +68,7 @@ test('create two isolated profiles and store only a token hash', async () => {
 test('every catalog serves valid IMDb previews for both types', async () => {
   for (const type of ['movie', 'series']) for (const { id } of CATALOGS) {
     const filters: Record<string, string> = { languages: 'Tiếng Anh', origins: 'Nhật Bản', library: 'Đã xem' };
-    if (id === 'languages' && type === 'series') continue;
+    if ((id === 'languages' && type === 'series') || (id === 'tv-shows' && type === 'movie')) continue;
     const filter = filters[id] ? '/' + new URLSearchParams({ genre: filters[id] }) : '';
     const response = await app.inject(catalog(id, type, filter));
     assert.equal(response.statusCode, 200, response.body);
