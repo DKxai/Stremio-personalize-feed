@@ -16,47 +16,32 @@ Mặc định dùng **US** để gộp thư viện các dịch vụ quốc tế,
 
 ## Catalog
 
-16 nhóm × hai loại `movie` / `series` = **32 hàng Home/Discover**, cộng 2 catalog chỉ dành cho tìm kiếm = **34 khai báo trong manifest**. Stremio yêu cầu mỗi catalog có một loại, nên Movie và Series có các hàng riêng.
+Manifest mặc định có **15 hàng Home**, năm catalog dành riêng cho Khám phá và hai catalog tìm kiếm. Stremio tách Phim lẻ và Series theo loại nội dung. Có thể ghim thêm phim lẻ theo ngôn ngữ hoặc mục Vì bạn đã xem trên trang cấu hình, sau đó cài lại add-on bằng manifest của profile.
 
-| ID | Nội dung | Quy tắc |
-| --- | --- | --- |
-| `pf-recommended` | Dành cho bạn | Sở thích, favorites/likes, độ mới, quốc gia, anime và tín hiệu cộng tác khi đủ dữ liệu |
-| `pf-trending` | Xu hướng tuần này · Các nền tảng | TMDB weekly trending, giao với nền tảng đăng ký đang có phim tại khu vực đã chọn |
-| `pf-new30` | Mới phát hành · 30 ngày qua | Tuổi tác phẩm 0–29 ngày, có trên nền tảng đã chọn |
-| `pf-new60` | Mới phát hành · 31–60 ngày | Tuổi tác phẩm 30–59 ngày, có trên nền tảng đã chọn |
-| `pf-new90` | Mới phát hành · 61–90 ngày | Tuổi tác phẩm 60–89 ngày, có trên nền tảng đã chọn |
-| `pf-korean` | Phim Hàn dành cho bạn | Quốc gia nguồn KR |
-| `pf-chinese` | Phim Trung dành cho bạn | Quốc gia nguồn CN, TW hoặc HK |
-| `pf-japanese` | Phim Nhật dành cho bạn | Điện ảnh và J-Drama từ JP; anime có hàng riêng |
-| `pf-anime` | Thế giới Anime | Animation từ Nhật Bản |
-| `pf-anime-new` | Anime mới · 90 ngày qua | Anime có tuổi tác phẩm 0–89 ngày |
-| `pf-saved` | Thư viện & Yêu thích | Saved từ Stremio, favorites và likes; không trộn với dislike |
-| `pf-watched` | Danh sách Đã xem | Tác phẩm đã xem và series đã xem một số tập, ghi rõ số tập |
-| `pf-search` | Tìm kiếm | Movie và Series riêng; TMDB relevance, tên đa ngôn ngữ hoặc IMDb ID, gồm cả phim đã xem |
-| `pf-because` | Vì bạn đã xem | Tương đồng với manual watched/favorites/likes |
-| `pf-genres` | Thể loại yêu thích | Phù hợp genres đã chọn |
-| `pf-gems` | Đáng xem, ít người biết | Tương đồng, chất lượng, độ phổ biến thấp |
-| `pf-top` | Lựa chọn hàng đầu | Mức phù hợp và điểm chất lượng được điều chỉnh theo số lượt đánh giá |
+| Mục | Nội dung và bộ lọc |
+| --- | --- |
+| Dành cho bạn | Phim lẻ và series theo tương tác, thể loại, độ mới, ngôn ngữ và quốc gia ưu tiên |
+| Mới phát hành · 90 ngày qua | Phim mới và mùa series mới đang có trên nền tảng đã chọn. Bộ lọc 30 ngày, 31–60 ngày và 61–90 ngày |
+| Xu hướng tuần · Các nền tảng | Danh sách chung xếp Netflix → Disney+ → Max → Prime Video → Apple TV+ → Crunchyroll → Viki → iQIYI → WeTV → Hulu. Khám phá có bộ lọc từng dịch vụ |
+| Phim tiếng Hàn, Anh, Nhật, Trung | Chọn theo ngôn ngữ gốc. Tiếng Trung gồm Quan Thoại và Quảng Đông. Khám phá theo quốc gia là mục riêng |
+| Anime | Anime mùa này, vừa có tập mới, dành cho bạn và anime điện ảnh. Khám phá có anime đã hoàn thành, sắp phát, ít người biết, donghua và các chủ đề |
+| Đáng xem, ít người biết | Phim có độ phù hợp và điểm chất lượng cao hơn tương quan với độ phổ biến |
+| Thư viện | Đã lưu & Yêu thích và Đã xem trong Khám phá |
+| Tìm phim & anime | Tìm tên gốc, tên quốc tế hoặc IMDb ID qua TMDB, gồm cả nội dung đã xem |
 
-### Ý nghĩa chính xác của “mới” và “xu hướng”
+Mục mới tính theo ngày phát hành phim hoặc ngày bắt đầu mùa series, theo giờ Việt Nam. Lịch anime lấy từ ngày phát sóng tập trong TMDB. Mục vừa có tập mới xét bảy ngày, còn mục sắp phát sóng chỉ lấy lịch có ngày dự kiến trong 90 ngày. Lịch phát sóng gốc và khả dụng trên nền tảng là hai tín hiệu riêng.
 
-- Ngày tính theo UTC, cập nhật theo ngày hiện tại, không cố định theo năm phát triển. Không nhận tác phẩm chưa phát hành, ngày không hợp lệ hoặc không có ngày vào mục mới.
-- Movie dùng **ngày phát hành đầu tiên**; Series dùng **ngày phát tập đầu tiên**. Series cũ có mùa mới không được gắn thành series mới.
-- Phim mới đang có trên dịch vụ **không đồng nghĩa** dịch vụ vừa thêm phim. TMDB không cung cấp lịch sử đầy đủ ngày được thêm lên Netflix/Disney+/HBO Max. Muốn catalog “vừa thêm lên nền tảng”, cần nguồn dữ liệu lịch sử riêng.
-- Weekly trending là xu hướng **TMDB**, không phải tổng hợp Top 10 chính thức của từng dịch vụ. Một mục xu hướng gộp Netflix, Disney+, HBO Max/Max, Prime Video, Apple TV+, Hulu, Crunchyroll, Viki, iQIYI và WeTV được lọc theo lựa chọn của profile.
-- Dữ liệu nền tảng là subscription (`flatrate`), theo khu vực, từ **JustWatch qua TMDB**. Không coi kết quả chỉ có thuê/mua là đang nằm trong gói đăng ký.
-- Catalog phim Hàn/Trung/Nhật/anime tìm nội dung rộng hơn và có thể gồm phim chưa có trên các nền tảng đã chọn; chỉ các hàng xu hướng và new30/60/90 bắt buộc khớp nền tảng. Anime mới là tác phẩm anime mới, không phải lịch chiếu tập mới của toàn bộ anime đang phát.
-- Không bù kết quả thiếu bằng fixture hoặc phim ngoài mốc ngày. Khu vực/nền tảng ít dữ liệu có thể trả danh sách trống.
+Xu hướng lấy từ bảng tuần TMDB. Nền tảng được giới hạn ở dữ liệu thuê bao của JustWatch, theo đúng thị trường và các dịch vụ người dùng chọn. Phim đa nền tảng hiện một lần trong danh sách chung và vẫn có thể tìm thấy khi mở bộ lọc của từng dịch vụ. Mục Mới phát hành dùng ngày ra mắt tác phẩm hoặc mùa.
 
 ## Recommendation và giới hạn tài nguyên
 
 Candidate generator tìm Movie/TV, genres, quốc gia, anime và dữ liệu tuần. Các pool được xen kẽ để phim Hàn, Trung, anime không bị loại hết bởi giới hạn request. Tối đa 40 TMDB title candidates cho một catalog; đây không phải toàn bộ thư viện phim. Titles thiếu IMDb mapping bị bỏ để giữ tương thích streaming Add-on.
 
-Ranking ổn định, có chiến lược riêng theo catalog: Jaccard genres/cast/directors/keywords, positive/negative affinity, độ mới, quốc gia yêu thích, anime, Bayesian rating và diversity penalty. Favorites, likes, saved, watched/started và dislikes được loại khỏi danh sách đề xuất; vẫn tìm được trong Search và các danh sách riêng. Watched là tín hiệu tương đồng yếu hơn Like, saved yếu hơn watched. Tín hiệu dislike cũng làm giảm độ tương đồng. Không dùng random.
+Ranking ổn định, xoay tối đa ba gợi ý khám phá trong tám vị trí đầu khi đủ ứng viên. Mỗi catalog có chiến lược riêng: Jaccard genres/cast/directors/keywords, positive/negative affinity, độ mới, quốc gia yêu thích, anime, Bayesian rating và diversity penalty. Favorites, likes, saved, watched/started và dislikes được loại khỏi danh sách đề xuất; vẫn tìm được trong Search và các danh sách riêng. Hàng tập mới có thể đưa trở lại bộ đã lưu hoặc đã xem. Watched là tín hiệu tương đồng yếu hơn Like, saved yếu hơn watched. Tín hiệu dislike cũng làm giảm độ tương đồng. Không dùng random.
 
 Hybrid item co-occurrence có trọng số nhỏ trong Recommended/Top/Gems: chỉ dùng ứng viên được **ít nhất ba profile khác nhau** có sở thích giao nhau cùng thích. Dữ liệu ít thì quay về content-based. Đây là baseline cộng tác, chưa phải mô hình học máy đã được đánh giá độ chính xác bằng hành vi thật.
 
-TMDB chạy tối đa bốn request đồng thời trên một process; các request trùng được gộp. Cache catalog giữ tối đa 100 hàng trong RAM và khoảng 150 hàng trong SQLite. Khi có yêu cầu, dữ liệu sau 30 phút được làm mới ở nền. Catalog đã lưu có thể dùng tới 24 giờ, kể cả sau restart. Lần đầu mở một bộ lọc chưa được lưu vẫn cần chờ TMDB; ranking: tối đa 500 danh sách / 5 phút, theo user ID + profile version + catalog + nguồn + ngày. Upstream response được cache trong RAM và SQLite; dữ liệu danh sách khoảng 30 phút, metadata/provider tối đa 24 giờ. Cache SQLite được dọn theo thời gian và sau mỗi 100 lượt ghi, giữ khoảng 500 phản hồi TMDB và 2.000 bản ghi metadata, bên cạnh cache catalog. Phản hồi có giới hạn kích thước lưu cache. Thay preferences/interaction tăng version và làm mới ranking.
+TMDB chạy tối đa bốn request đồng thời trên một process; các request trùng được gộp. Cache catalog giữ tối đa 100 hàng trong RAM và khoảng 150 hàng trong SQLite. Khi có yêu cầu, dữ liệu sau 30 phút (xu hướng: 2 giờ) được làm mới ở nền. Catalog đã lưu có thể dùng tới 24 giờ, kể cả sau restart. Lần đầu mở một bộ lọc chưa được lưu vẫn cần chờ TMDB; ranking: tối đa 500 danh sách / 5 phút, theo user ID + profile version + catalog + nguồn + ngày. Upstream response được cache trong RAM và SQLite; dữ liệu danh sách 30 phút (xu hướng: 2 giờ), chi tiết series 3 giờ và chi tiết phim tối đa 24 giờ. Cache SQLite được dọn theo thời gian và sau mỗi 100 lượt ghi, giữ khoảng 500 phản hồi TMDB và 2.000 bản ghi metadata, bên cạnh cache catalog. Phản hồi có giới hạn kích thước lưu cache. Thay preferences/interaction tăng version và làm mới ranking.
 
 Chỉ chạy **một instance** với SQLite trên persistent storage. Không cần Redis, Elasticsearch, GPU hoặc microservices. Giới hạn này phù hợp mục tiêu server nhỏ nhưng chưa thay thế benchmark tải production.
 

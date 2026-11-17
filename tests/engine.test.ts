@@ -48,6 +48,19 @@ test('cache reuses a ranking only for the same profile and version', () => {
   assert(!changed.some(t => t.id === first[0]!.id));
 });
 
+test('weekly trends prioritize selected platforms, keeping one result per IMDb ID', () => {
+  const template = TITLES.find(title => title.type === 'movie')!;
+  const netflix = { ...template, id: 'tt7000001', weeklyTrend: 0.4, providers: ['Netflix Standard with Ads'] };
+  const shared = { ...template, id: 'tt7000002', weeklyTrend: 0.6, providers: ['Disney Plus', 'Netflix'] };
+  const disney = { ...template, id: 'tt7000003', weeklyTrend: 0.8, providers: ['Disney Plus'] };
+  const max = { ...template, id: 'tt7000004', weeklyTrend: 1, providers: ['HBO Max'] };
+  const engine = new RecommendationEngine([max, disney, netflix, shared, shared]);
+  const p = { ...profile('trending', []), platforms: ['max', 'disney', 'netflix'] };
+  assert.deepEqual(engine.recommend(p, 'movie', 'trending').map(title => title.id), [shared.id, netflix.id, disney.id, max.id]);
+  const withoutNetflix = { ...p, version: 2, platforms: ['max', 'disney'] };
+  assert.deepEqual(engine.recommend(withoutNetflix, 'movie', 'trending').map(title => title.id), [disney.id, shared.id, max.id]);
+});
+
 test('Vietnam midnight rotates qualified discoveries into the first screen without losing strong matches', () => {
   const template = TITLES.find(title => title.type === 'movie')!;
   const titles = Array.from({ length: 30 }, (_, i) => ({
@@ -65,7 +78,8 @@ test('Vietnam midnight rotates qualified discoveries into the first screen witho
   now = new Date('2026-11-15T17:01:00Z');
   const after = engine.recommend(p, 'movie', 'recommended');
   assert.deepEqual(after.slice(0, 2), before.slice(0, 2));
-  assert.equal(after.slice(0, 8).filter(title => !before.slice(0, 8).includes(title)).length, 3);
+  const previousIds = new Set(before.slice(0, 8).map(title => title.id));
+  assert.equal(after.slice(0, 8).filter(title => !previousIds.has(title.id)).length, 3);
   assert.equal(new Set(after.map(title => title.id)).size, titles.length);
   const disliked = after[2]!;
   assert(!engine.recommend({ ...p, version: 2, dislikes: [disliked.id] }, 'movie', 'recommended').includes(disliked));
@@ -79,4 +93,14 @@ test('changing the only preferred country changes which comparable films lead th
   const p = profile('origins', jp.genres);
   assert.equal(engine.recommend({ ...p, preferredOrigins: ['JP'] }, 'movie', 'recommended')[0]?.id, jp.id);
   assert.equal(engine.recommend({ ...p, version: 2, preferredOrigins: ['KR'] }, 'movie', 'recommended')[0]?.id, kr.id);
+});
+
+test('language preference boosts original-language titles independently of production country', () => {
+  const template = TITLES.find(title => title.type === 'movie')!;
+  const english = { ...template, id: 'tt7000001', originalLanguage: 'en', originCountries: ['AU'] };
+  const korean = { ...template, id: 'tt7000002', originalLanguage: 'ko', originCountries: ['KR'] };
+  const engine = new RecommendationEngine([english, korean]);
+  const p = { ...profile('language', template.genres), preferredOrigins: [] };
+  assert.equal(engine.recommend({ ...p, preferredLanguages: ['en'] }, 'movie', 'recommended')[0]?.id, english.id);
+  assert.equal(engine.recommend({ ...p, version: 2, preferredLanguages: ['ko'] }, 'movie', 'recommended')[0]?.id, korean.id);
 });

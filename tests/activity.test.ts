@@ -35,9 +35,14 @@ after(async()=>{await app?.close();await db?.$disconnect();rmSync(dir,{recursive
 
 test('manifest exposes separate Home rows, genre filtering and search-only rows, with library tracking opt-in settings',async()=>{
   const m=(await app.inject('/'+token+'/manifest.json')).json();
-  assert.equal(m.version,'0.4.3');assert.equal(m.catalogs.length,34);
-  const home=m.catalogs.filter((c:any)=>!c.extra.some((e:any)=>e.isRequired));assert.equal(home.length,32);
-  for(const name of ['japanese','korean','chinese','anime','watched','saved']) assert.equal(home.filter((c:any)=>c.id==='pf-'+name).length,2);
+  assert.equal(m.version,'0.4.4');assert.equal(m.catalogs.length,22);
+  const home=m.catalogs.filter((c:any)=>!c.extra.some((e:any)=>e.isRequired));assert.equal(home.length,15);
+  for (const name of ['lang-ko', 'lang-en', 'lang-ja', 'lang-zh', 'anime-season', 'anime-episodes']) {
+    assert.deepEqual(home.filter((c: any) => c.id === 'pf-' + name).map((c: any) => c.type), ['series']);
+  }
+  assert.equal(home.filter((c: any) => c.id === 'pf-trending').length, 2);
+  assert(m.catalogs.find((c: any) => c.id === 'pf-library').extra.some((e: any) => e.name === 'genre' && e.isRequired));
+  assert(m.catalogs.find((c: any) => c.id === 'pf-languages').extra.some((e: any) => e.options?.includes('Tiếng Anh')));
   assert.equal(m.catalogs.filter((c:any)=>c.extra.some((e:any)=>e.name==='search')).length,2);
   assert(m.resources.some((r:any)=>r.name==='library'));assert(!m.resources.some((r:any)=>r.name==='player'));
 });

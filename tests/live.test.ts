@@ -5,12 +5,13 @@ import { LiveLibrary, UnconfiguredLibrary } from '../packages/metadata/live-libr
 import { RecommendationEngine } from '../packages/recommendation/engine.js';
 import { communityScores } from '../packages/recommendation/community.js';
 import { daysAgo, inReleaseWindow, releaseAge } from '../packages/recommendation/dates.js';
+import { vietnamDate } from '../packages/recommendation/airing.js';
 import { feedPreferences } from '../packages/shared/preferences.js';
 import type { Profile, Title } from '../packages/shared/types.js';
 import { CATALOGS } from '../packages/recommendation/catalogs.js';
 
 import { mockTmdb } from './helpers/tmdb.js';
-const now = new Date('2026-11-07T23:55:00Z');
+const now = new Date('2026-11-07T09:55:00Z');
 const profile: Profile = { id:'test', version:1, genres:['Animation', 'Drama'], favorites:[], likes:[], dislikes:[], watched:[], ...feedPreferences() };
 
 test('release windows use UTC and exclude future, invalid, old and missing dates', () => {
@@ -34,7 +35,7 @@ test('live feeds enforce real date, country, anime and subscription availability
       for(const title of batch.titles) {
         assert.match(title.id,/^tt\d{7,10}$/);assert.equal(title.type,type);
         assert(!['tt1000018','tt1000019','tt1000020'].includes(title.id));
-        assert(releaseAge(title.releaseDate,now)>=0);
+        if (id !== 'anime-upcoming') assert(releaseAge(title.releaseDate,vietnamDate(now))>=0);
         if(id==='new30') assert(inReleaseWindow(title.releaseDate,0,29,now));
         if(id==='new60') assert(inReleaseWindow(title.releaseDate,30,59,now));
         if(id==='new90') assert(inReleaseWindow(title.releaseDate,60,89,now));
@@ -54,6 +55,11 @@ test('live feeds enforce real date, country, anime and subscription availability
   }
   assert(requests.some(u=>u.pathname==='/3/trending/movie/week'));
   assert(requests.some(u=>u.pathname==='/3/trending/tv/week'));
+  const weekly = await library.candidates(profile, 'movie', 'trending');
+  const pageOne = weekly.titles.find(title => title.tmdbId === 3);
+  const pageTwo = weekly.titles.find(title => title.tmdbId === 21);
+  assert(pageOne?.weeklyTrend !== undefined && pageTwo?.weeklyTrend !== undefined);
+  assert(pageOne.weeklyTrend > pageTwo.weeklyTrend);
   const fresh=requests.find(u=>u.pathname==='/3/discover/movie' && u.searchParams.get('primary_release_date.gte')===daysAgo(29,now));
   assert(fresh);assert.equal(fresh.searchParams.get('with_watch_providers'),'8|337|9999');
   assert.equal(fresh.searchParams.get('watch_region'),'US');assert.equal(fresh.searchParams.get('with_watch_monetization_types'),'flatrate');

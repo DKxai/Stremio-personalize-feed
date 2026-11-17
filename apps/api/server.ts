@@ -6,7 +6,7 @@ import type { PrismaClient } from '@prisma/client';
 import type { Config } from './config.js';
 import { ProfileService } from './services/profiles.js';
 import { TITLES } from '../../packages/metadata/fixtures.js';
-import { GENRES, PLATFORMS, REGIONS, ORIGINS, feedPreferences, type FeedPreferences } from '../../packages/shared/preferences.js';
+import { GENRES, PLATFORMS, REGIONS, ORIGINS, LANGUAGES, HOME_EXTRAS, feedPreferences, type FeedPreferences } from '../../packages/shared/preferences.js';
 import { LiveLibrary, FixtureLibrary, UnconfiguredLibrary, type LibrarySource } from '../../packages/metadata/live-library.js';
 import { MetadataStore } from '../../packages/metadata/store.js';
 import { TmdbClient } from '../../packages/metadata/tmdb.js';
@@ -18,6 +18,7 @@ import { createAddon } from '../addon/addon.js';
 import { parseCatalogQuery } from '../../packages/recommendation/catalog-query.js';
 import { parseLibraryEvent, parsePlayerEvent } from '../../packages/shared/stremio-events.js';
 import { CATALOGS, isCatalogId } from '../../packages/recommendation/catalogs.js';
+import { catalogViews } from '../../packages/recommendation/views.js';
 import type { Profile } from '../../packages/shared/types.js';
 import { configureHtml } from './ui/configure.js';
 
@@ -29,6 +30,8 @@ const preferencesSchema = {
     region: { type: 'string', enum: REGIONS },
     platforms: { type: 'array', minItems: 1, maxItems: 10, uniqueItems: true, items: { type: 'string', enum: PLATFORMS.map(p => p.id) } },
     preferredOrigins: { type: 'array', maxItems: 6, uniqueItems: true, items: { type: 'string', enum: ORIGINS } },
+    preferredLanguages: { type: 'array', maxItems: LANGUAGES.length, uniqueItems: true, items: { type: 'string', enum: LANGUAGES.map(language => language.id) } },
+    homeExtras: { type: 'array', maxItems: HOME_EXTRAS.length, uniqueItems: true, items: { type: 'string', enum: HOME_EXTRAS } },
     preferAnime: { type: 'boolean' }, syncLibrary: { type: 'boolean' }, syncPlayback: { type: 'boolean' },
   },
 } as const;
@@ -101,7 +104,7 @@ export async function buildServer(db: PrismaClient, config: Config, metadata: Me
 
   app.get('/health', async () => {
     await db.$queryRaw`SELECT 1`;
-    return { status: 'ok', version: '0.4.3', metadata: library.mode, feedReady: library.mode === 'tmdb', storage: config.storageMode };
+    return { status: 'ok', version: '0.4.4', metadata: library.mode, feedReady: library.mode === 'tmdb', storage: config.storageMode };
   });
   app.get('/', async (_request, reply) => reply.redirect('/configure'));
   app.get('/configure', async (_request, reply) => reply.type('text/html').send(configureHtml));
@@ -111,7 +114,7 @@ export async function buildServer(db: PrismaClient, config: Config, metadata: Me
   app.get('/api/library', async () => ({
     genres: GENRES,
     titles: library.mode === 'fixtures' ? TITLES.map(({ id, type, name, year, genres }) => ({ id, type, name, year, genres })) : [],
-    catalogs: CATALOGS, platforms: PLATFORMS.map(({ id, name }) => ({ id, name })), regions: REGIONS, origins: ORIGINS, defaults: feedPreferences(),
+    catalogs: CATALOGS, catalogViews: catalogViews(), languages: LANGUAGES.map(({ id, name }) => ({ id, name })), platforms: PLATFORMS.map(({ id, name }) => ({ id, name })), regions: REGIONS, origins: ORIGINS, defaults: feedPreferences(),
     demo: library.mode === 'fixtures', source: library.mode, storage: config.storageMode, invitationRequired: Boolean(config.registrationKey),
   }));
   app.post<{ Body: { genres: string[]; favorites: string[]; watched?: string[]; registrationKey?: string } & Partial<FeedPreferences> }>('/api/profiles', {

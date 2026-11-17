@@ -1,11 +1,12 @@
-import type { Title, MediaType, Profile } from '../shared/types.js';
-import { feedPreferences, PLATFORMS, GENRES } from '../shared/preferences.js';
+import type { Title, MediaType, Profile, EpisodeAirDate } from '../shared/types.js';
+import { feedPreferences, platformPriority, LANGUAGES, GENRES } from '../shared/preferences.js';
 import { TtlCache } from '../shared/cache.js';
 import { TmdbClient, UpstreamUnavailable } from './tmdb.js';
 import type { MetadataStore } from './store.js';
 import { TITLES } from './fixtures.js';
 import type { CatalogQuery } from '../recommendation/catalog-query.js';
-import type { CatalogId } from '../recommendation/catalogs.js';
+import { isFreshCatalog, type CatalogId } from '../recommendation/catalogs.js';
+import { airingWindow, latestRelease, matchesAiring, vietnamDate } from '../recommendation/airing.js';
 import { dateOnly, daysAgo, inReleaseWindow, releaseWindow, releaseAge, recommendationDay } from '../recommendation/dates.js';
 
 const genreIds: Record<string, number> = { Action: 28, Adventure: 12, Animation: 16, Comedy: 35, Crime: 80, Documentary: 99, Drama: 18, Family: 10751, Fantasy: 14, History: 36, Horror: 27, Music: 10402, Mystery: 9648, Romance: 10749, 'Sci-Fi': 878, Thriller: 53, War: 10752, Western: 37 };
@@ -14,8 +15,7 @@ const tvGenres = (genre: string) => ['Action', 'Adventure'].includes(genre) ? 10
 const names = (values: any[] = [], limit = 12): string[] => values.filter(v => typeof v?.name === 'string').slice(0, limit).map(v => v.name);
 const validDate = (value: unknown) => typeof value === 'string' && Number.isFinite(releaseAge(value));
 const countryMatch = (title: Title, countries: string[]) => title.originCountries?.some(c => countries.includes(c));
-const providerMatches = (providerName: string, ids: string[]) => PLATFORMS.some(p => ids.includes(p.id) && (p.matches as readonly string[]).some(n => n.toLowerCase() === providerName.toLowerCase()));
-const SNAPSHOT_PREFIX = 'catalog:v1:';
+const SNAPSHOT_PREFIX = 'catalog:v2:';
 const REFRESH_INTERVAL = 30 * 60_000;
 const SNAPSHOT_MAX_AGE = 24 * 60 * 60_000;
 const MAX_BACKGROUND_REFRESHES = 2;
@@ -23,15 +23,18 @@ const RETRY_DELAY = 60_000;
 interface CatalogSnapshot { batch: CandidateBatch; refreshedAt: number }
 // Keep only fields used to resolve IMDb IDs, rank titles and show availability.
 function compactDetail(detail: any) {
-  // Existing SQLite responses are decoded through this function on cache misses.
-  if (detail.compactVersion === 1) return detail;
+  if (detail.compactVersion === 2) return detail;
   const availability = detail['watch/providers'];
   const providers = Object.fromEntries(Object.entries(availability?.results ?? {}).map(([region, value]) => {
     const entry = value as { flatrate?: { provider_name: string }[]; link?: string };
     return [region, { flatrate: entry.flatrate?.slice(0, 30).map(provider => ({ provider_name: provider.provider_name })), link: entry.link }];
   }));
   return {
-    compactVersion: 1,
+    compactVersion: 2,
+    status: detail.status,
+    seasons: detail.seasons?.filter((season: any) => season.season_number > 0).slice(-40).map((season: any) => ({ air_date: season.air_date })),
+    last_episode_to_air: detail.last_episode_to_air && compactEpisode(detail.last_episode_to_air),
+    next_episode_to_air: detail.next_episode_to_air && compactEpisode(detail.next_episode_to_air),
     imdb_id: detail.imdb_id,
     external_ids: { imdb_id: detail.external_ids?.imdb_id },
     title: detail.title, name: detail.name, original_title: detail.original_title, original_name: detail.original_name,
@@ -49,6 +52,16 @@ function compactDetail(detail: any) {
     keywords: { keywords: names(detail.keywords?.keywords || detail.keywords?.results, 15).map(name => ({ name })) },
     'watch/providers': { results: providers },
   };
+}
+
+function compactEpisode(value: any) {
+  return { air_date: value.air_date, season_number: value.season_number, episode_number: value.episode_number };
+}
+
+function episodeDate(value: any): EpisodeAirDate | undefined {
+  if (!value || !validDate(value.air_date) || !Number.isInteger(value.season_number) || value.season_number < 1
+    || !Number.isInteger(value.episode_number) || value.episode_number < 1) return undefined;
+  return { date: value.air_date, season: value.season_number, episode: value.episode_number };
 }
 
 export interface CandidateBatch { titles: Title[]; revision: string; source: 'tmdb' | 'fixtures' }
@@ -81,13 +94,13 @@ export class LiveLibrary implements LibrarySource {
     return title?.id === id ? title : undefined;
   }
 
-  private async detail(id: number, type: MediaType, region: string): Promise<Title | undefined> {
+  private async detail(id: number, type: MediaType, region: string, allowUpcoming = false): Promise<Title | undefined> {
     const media = type === 'movie' ? 'movie' : 'tv';
-    const d = await this.client.get(`${media}/${id}`, { append_to_response: 'external_ids,credits,keywords,watch/providers' }, 86_400_000, compactDetail);
+    const d = await this.client.get(`${media}/${id}`, { append_to_response: 'external_ids,keywords,credits,watch/providers' }, type === 'series' ? 3 * 3_600_000 : 86_400_000, compactDetail);
     if (!d) return undefined;
     const imdb = d.imdb_id || d.external_ids?.imdb_id;
     const releaseDate = type === 'movie' ? d.release_date : d.first_air_date;
-    if (d.adult === true || !/^tt\d{7,10}$/.test(imdb ?? '') || !validDate(releaseDate) || releaseDate > dateOnly(this.now())) return undefined;
+    if (d.adult === true || !/^tt\d{7,10}$/.test(imdb ?? '') || !validDate(releaseDate) || (!allowUpcoming && releaseDate > dateOnly(vietnamDate(this.now())))) return undefined;
     const availability = d['watch/providers']?.results?.[region];
     const origins: string[] = d.origin_country || (d.production_countries || []).map((c: any) => c.iso_3166_1);
     const genres: string[] = (d.genres || []).flatMap((g: any) => g.id === 10759 ? ['Action', 'Adventure'] : g.id === 10765 ? ['Sci-Fi', 'Fantasy'] : g.id === 10768 ? ['War'] : genreNames[g.id] ? [genreNames[g.id]] : []);
@@ -97,6 +110,7 @@ export class LiveLibrary implements LibrarySource {
     if (keywords.some(k => /thriller/i.test(k)) && !genres.includes('Thriller')) genres.push('Thriller');
     const title: Title = {
       id: imdb, tmdbId: id, type, name: d.title || d.name || d.original_title || d.original_name,
+      originalName: d.original_title || d.original_name,
       year: Number(releaseDate.slice(0, 4)), releaseDate, genres,
       cast: names(d.credits?.cast, 8), directors: names((d.credits?.crew || []).filter((c: any) => c.job === 'Director'), 4),
       keywords,
@@ -105,6 +119,12 @@ export class LiveLibrary implements LibrarySource {
       popularity: Math.min(1, Math.log1p(Math.max(0, Number(d.popularity) || 0)) / Math.log(1001)),
       originCountries: origins, originalLanguage: d.original_language,
       isAnime: genres.includes('Animation') && (origins.includes('JP') || d.original_language === 'ja'),
+      ...(type === 'series' ? {
+        seriesStatus: typeof d.status === 'string' ? d.status : undefined,
+        seasonStarts: (d.seasons || []).map((season: any) => season.air_date).filter(validDate),
+        lastEpisode: episodeDate(d.last_episode_to_air),
+        nextEpisode: episodeDate(d.next_episode_to_air),
+      } : {}),
       poster: typeof d.poster_path === 'string' && /^\/[\w.]+$/.test(d.poster_path) ? `https://image.tmdb.org/t/p/w342${d.poster_path}` : undefined,
       overview: typeof d.overview === 'string' ? d.overview : '',
       providers: (availability?.flatrate || []).filter((p: any) => typeof p.provider_name === 'string').slice(0, 30).map((p: any) => p.provider_name),
@@ -132,13 +152,14 @@ export class LiveLibrary implements LibrarySource {
     const prefs = feedPreferences(profile);
     const pool = catalog === 'because' || catalog === 'top' ? 'recommended' : catalog;
     const usesOrigins = pool === 'recommended' || pool === 'gems';
+    const usesLanguages = pool === 'recommended';
     const origins = [...prefs.preferredOrigins].sort();
-    const usesPlatforms = catalog === 'trending' || catalog.startsWith('new');
+    const usesPlatforms = catalog === 'trending' || catalog === 'recent' || catalog.startsWith('new');
     const usesGenres = ['recommended', 'because', 'genres', 'top', 'gems'].includes(catalog) && !filters.genre;
     const key = SNAPSHOT_PREFIX + JSON.stringify([
       type, pool, prefs.region, usesPlatforms ? [...prefs.platforms].sort() : [],
       usesGenres ? [...profile.genres].sort() : [], filters.genre,
-      usesOrigins ? origins : [],
+      usesOrigins ? origins : [], usesLanguages ? [...prefs.preferredLanguages].sort() : [],
     ]);
     let cached = this.rows.get(key);
     if (!cached && this.store) {
@@ -149,8 +170,9 @@ export class LiveLibrary implements LibrarySource {
       }
     }
     const age = cached ? this.now().getTime() - cached.refreshedAt : Infinity;
+    const refreshInterval = catalog === 'trending' ? 2 * 3_600_000 : REFRESH_INTERVAL;
     const usable = age >= 0 && age < SNAPSHOT_MAX_AGE ? cached : undefined;
-    if (usable && (age < REFRESH_INTERVAL || this.retry.get(key))) return usable.batch;
+    if (usable && (age < refreshInterval || this.retry.get(key))) return usable.batch;
 
     let task = this.pending.get(key);
     if (!task) {
@@ -184,37 +206,63 @@ export class LiveLibrary implements LibrarySource {
     const genres = [...profile.genres].sort();
     const media = type === 'movie' ? 'movie' : 'tv';
     const now = this.now();
-    const today = dateOnly(now);
+    const today = dateOnly(vietnamDate(now));
     const window = releaseWindow(catalog);
-    const platformRow = catalog === 'trending' || catalog.startsWith('new');
+    const platformRow = catalog === 'trending' || catalog === 'recent' || catalog.startsWith('new');
+    const language = LANGUAGES.find(item => catalog === `lang-${item.id}`);
+    const airing = type === 'series' ? airingWindow(catalog, now) : undefined;
     const common: Record<string, string | number> = { include_adult: 'false', sort_by: 'popularity.desc', page: 1 };
     if (type === 'series') common.without_genres = '10763,10767,10764';
     common[type === 'movie' ? 'primary_release_date.lte' : 'first_air_date.lte'] = today;
     common[type === 'movie' ? 'primary_release_date.gte' : 'first_air_date.gte'] = daysAgo(3 * 365, this.now());
     if (platformRow && catalog !== 'trending') {
       const providers = await this.client.get(`watch/providers/${media}`, { watch_region: prefs.region }, 86_400_000);
-      const ids = (providers.results || []).filter((p: any) => typeof p.provider_name === 'string' && providerMatches(p.provider_name, prefs.platforms)).map((p: any) => p.provider_id);
+      const ids = (providers.results || []).filter((p: any) => typeof p.provider_name === 'string' && platformPriority([p.provider_name], prefs.platforms) >= 0).map((p: any) => p.provider_id);
       if (!ids.length) return { titles: [], revision: today, source: 'tmdb' };
       Object.assign(common, { watch_region: prefs.region, with_watch_providers: ids.join('|'), with_watch_monetization_types: 'flatrate' });
     }
-    if (window) {
-      common[type === 'movie' ? 'primary_release_date.gte' : 'first_air_date.gte'] = daysAgo(window[1], this.now());
-      common[type === 'movie' ? 'primary_release_date.lte' : 'first_air_date.lte'] = daysAgo(window[0], this.now());
+    if (catalog === 'recent' && type === 'series') {
+      delete common['first_air_date.gte'];
+      common['air_date.gte'] = daysAgo(89, vietnamDate(now));
+      common['air_date.lte'] = today;
+      common.timezone = 'Asia/Ho_Chi_Minh';
+    } else if (window) {
+      common[type === 'movie' ? 'primary_release_date.gte' : 'first_air_date.gte'] = daysAgo(window[1], vietnamDate(now));
+      common[type === 'movie' ? 'primary_release_date.lte' : 'first_air_date.lte'] = daysAgo(window[0], vietnamDate(now));
     }
     if (catalog === 'korean') common.with_origin_country = 'KR';
     if (catalog === 'chinese') common.with_origin_country = 'CN|TW|HK';
     if (catalog === 'japanese') { common.with_origin_country = 'JP'; common.without_genres = [common.without_genres, '16'].filter(Boolean).join(','); }
     if (catalog.startsWith('anime')) { common.with_genres = 16; common.with_origin_country = 'JP'; }
+    if (catalog === 'donghua') { common.with_genres = 16; common.with_origin_country = 'CN|TW|HK'; }
+    if (language?.id === 'ja') common.without_genres = [common.without_genres, '16'].filter(Boolean).join(',');
+    if (airing) {
+      delete common['first_air_date.gte'];
+      common['air_date.gte'] = airing[0];
+      common['air_date.lte'] = airing[1];
+      common.timezone = 'Asia/Ho_Chi_Minh';
+      if (catalog === 'anime-upcoming') common['first_air_date.lte'] = airing[1];
+    }
+    if (catalog === 'anime-completed') { common.with_status = 3; delete common['first_air_date.gte']; }
+    if (catalog === 'anime-gems') { common['vote_count.gte'] = 15; common['vote_average.gte'] = 7; }
+
     if (catalog === 'genres' && profile.genres.length) common.with_genres = genres.map(g => type === 'movie' ? genreIds[g] : tvGenres(g)).filter(Boolean).join('|');
     if (filters.genre) {
       const genre = type === 'movie' ? genreIds[filters.genre] : tvGenres(filters.genre);
-      common.with_genres = catalog.startsWith('anime') && genre !== 16 ? `16,${genre}` : genre!;
+      common.with_genres = (catalog.startsWith('anime') || catalog === 'donghua') && genre !== 16 ? `16,${genre}` : genre!;
     }
-    if (catalog === 'gems') { common['vote_count.gte'] = 20; common['vote_average.gte'] = 6; }
+    if (catalog === 'gems') {
+      common['vote_count.gte'] = 20;
+      common['vote_average.gte'] = 6;
+      common[type === 'movie' ? 'primary_release_date.gte' : 'first_air_date.gte'] = daysAgo(8 * 365, vietnamDate(now));
+    }
     const requests: Promise<any>[] = [];
     if (catalog === 'trending') {
       // Real weekly TMDB ranks; availability is checked per title and selected territory below.
-      requests.push(this.client.get(`trending/${media}/week`, { page: 1 }), this.client.get(`trending/${media}/week`, { page: 2 }));
+      for (const page of [1, 2]) requests.push(this.client.get(`trending/${media}/week`, { page }, 2 * 3_600_000));
+    } else if (language) {
+      for (const code of language.codes) requests.push(this.client.get(`discover/${media}`, { ...common, with_original_language: code }));
+      if (language.codes.length === 1) requests.push(this.client.get(`discover/${media}`, { ...common, with_original_language: language.codes[0], page: 2 }));
     } else {
       requests.push(this.client.get(`discover/${media}`, common));
       const secondPage = catalog === 'recommended'
@@ -228,10 +276,17 @@ export class LiveLibrary implements LibrarySource {
         : { ...common, page: 2 };
       requests.push(this.client.get(`discover/${media}`, secondPage));
       if (['recommended', 'because', 'top', 'gems'].includes(catalog)) {
+        if (catalog === 'recommended' && prefs.preferredLanguages.length > 0 && prefs.preferredLanguages.length < LANGUAGES.length) {
+          // Rotate language coverage within the existing 40-title detail cap.
+          const preferred = LANGUAGES.filter(item => prefs.preferredLanguages.includes(item.id));
+          const index = recommendationDay(now) % Math.max(1, preferred.length);
+          const mainLanguage = preferred[index];
+          if (mainLanguage) requests.push(this.client.get(`discover/${media}`, { ...common, with_original_language: mainLanguage.codes[0] }));
+        }
         if (origins.length) {
           requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: origins.join('|'), page: 1 }));
         }
-        if (origins.includes('JP')) {
+        if (origins.includes('JP') && (prefs.preferredLanguages.length === 0 || prefs.preferredLanguages.length === LANGUAGES.length || catalog !== 'recommended')) {
           requests.push(this.client.get(`discover/${media}`, { ...common, with_origin_country: 'JP', without_genres: [common.without_genres, '16'].filter(Boolean).join(','), page: 1 }));
         }
         const preferredGenres = (filters.genre ? [filters.genre] : genres).map(g => type === 'movie' ? genreIds[g] : tvGenres(g)).filter(Boolean).join('|');
@@ -240,16 +295,21 @@ export class LiveLibrary implements LibrarySource {
       }
     }
     const pages = await Promise.all(requests);
-    // Interleave pools so Korean, Chinese and anime candidates survive the request budget.
-    const interleaved: number[] = [];
-    for (let i = 0; i < 20; i++) for (const page of pages) {
-      const row = page.results?.[i];
-      if (row && row.adult !== true && Number.isInteger(row.id)) interleaved.push(row.id);
+    const candidateRows = [];
+    if (catalog === 'trending') {
+      for (const page of pages) candidateRows.push(...(page.results ?? []).slice(0, 20));
+    } else {
+      // Interleave discovery pools to keep a mix of origins and anime within the lookup budget.
+      for (let i = 0; i < 20; i++) for (const page of pages) candidateRows.push(page.results?.[i]);
     }
-    const ids = [...new Set(interleaved)].slice(0, 40);
-    const titles = (await Promise.all(ids.map(id => this.detail(id, type, prefs.region)))).filter((t): t is Title => Boolean(t));
-    const filtered = titles.filter(t => !window || inReleaseWindow(t.releaseDate, ...window, this.now()))
-      .filter(t => !platformRow || t.providers?.some(name => providerMatches(name, prefs.platforms)))
+    const ids = [...new Set<number>(candidateRows
+      .filter(row => row && row.adult !== true && Number.isInteger(row.id)).map(row => row.id))].slice(0, 40);
+    const titles = (await Promise.all(ids.map(id => this.detail(id, type, prefs.region, catalog === 'anime-upcoming')))).filter((t): t is Title => Boolean(t));
+    const filtered = titles.filter(t => !window || inReleaseWindow(catalog === 'recent' ? latestRelease(t, vietnamDate(now)) : t.releaseDate, ...window, vietnamDate(now)))
+      .filter(t => matchesAiring(t, catalog, now))
+      .filter(t => !language || ((language.codes as readonly string[]).includes(t.originalLanguage ?? '') && (language.id !== 'ja' || !t.isAnime)))
+      .filter(t => catalog !== 'donghua' || (t.genres.includes('Animation') && countryMatch(t, ['CN', 'TW', 'HK'])))
+      .filter(t => !platformRow || platformPriority(t.providers ?? [], prefs.platforms) >= 0)
       .filter(t => catalog !== 'korean' || countryMatch(t, ['KR']))
       .filter(t => catalog !== 'chinese' || countryMatch(t, ['CN', 'TW', 'HK']))
       .filter(t => catalog !== 'japanese' || (countryMatch(t, ['JP']) && !t.genres.includes('Animation')))
@@ -268,7 +328,7 @@ export class FixtureLibrary implements LibrarySource {
   async resolve(id: string, type?: MediaType) { return TITLES.find(t => t.id === id && (!type || t.type === type)); }
   async search(query: string, _region = 'US', type?: MediaType, page = 1) { return TITLES.filter(t => (!type || t.type === type) && (t.id === query || t.name.toLowerCase().includes(query.toLowerCase()))).slice(type ? (page-1)*20 : 0, type ? page*20 : 12); }
   async candidates(_profile: Profile, type: MediaType, catalog: CatalogId): Promise<CandidateBatch> {
-    return { titles: catalog === 'trending' || releaseWindow(catalog) ? [] : TITLES.filter(t => t.type === type), revision: 'fixtures', source: 'fixtures' };
+    return { titles: catalog === 'trending' || isFreshCatalog(catalog) ? [] : TITLES.filter(t => t.type === type), revision: 'fixtures', source: 'fixtures' };
   }
 }
 export class UnconfiguredLibrary extends FixtureLibrary {

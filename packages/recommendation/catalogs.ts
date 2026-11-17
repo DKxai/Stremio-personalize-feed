@@ -3,9 +3,23 @@ export const CATALOGS = [
   { id: 'japanese', name: 'Phim Nhật dành cho bạn' },
   { id: 'korean', name: 'Phim Hàn dành cho bạn' },
   { id: 'chinese', name: 'Phim Trung dành cho bạn' },
-  { id: 'anime', name: 'Thế giới Anime' },
+  { id: 'anime', name: 'Anime dành cho bạn' },
   { id: 'anime-new', name: 'Anime mới · 90 ngày qua' },
   { id: 'trending', name: 'Xu hướng tuần này · Các nền tảng' },
+  { id: 'recent', name: 'Mới phát hành · 90 ngày qua' },
+  { id: 'lang-ko', name: 'Phim tiếng Hàn' },
+  { id: 'lang-en', name: 'Phim tiếng Anh' },
+  { id: 'lang-ja', name: 'Phim tiếng Nhật' },
+  { id: 'lang-zh', name: 'Phim tiếng Trung' },
+  { id: 'anime-season', name: 'Anime mùa này' },
+  { id: 'anime-episodes', name: 'Anime vừa có tập mới' },
+  { id: 'anime-completed', name: 'Anime đã hoàn thành' },
+  { id: 'anime-upcoming', name: 'Anime sắp phát sóng' },
+  { id: 'anime-gems', name: 'Anime đáng xem, ít người biết' },
+  { id: 'donghua', name: 'Donghua Trung Quốc' },
+  { id: 'languages', name: 'Khám phá theo tiếng phim' },
+  { id: 'origins', name: 'Khám phá theo quốc gia' },
+  { id: 'library', name: 'Thư viện của bạn' },
   { id: 'new30', name: 'Mới phát hành · 30 ngày qua' },
   { id: 'new60', name: 'Mới phát hành · 31–60 ngày' },
   { id: 'new90', name: 'Mới phát hành · 61–90 ngày' },
@@ -19,4 +33,4 @@ export const CATALOGS = [
 export type CatalogId = (typeof CATALOGS)[number]['id'];
 export const isCatalogId = (id: string): id is CatalogId => CATALOGS.some(c => c.id === id);
 export const PAGE_SIZE = 100;
-export const isFreshCatalog = (id: CatalogId) => id.startsWith('new') || id === 'anime-new';
+export const isFreshCatalog = (id: CatalogId) => id.startsWith('new') || id === 'recent' || ['anime-new', 'anime-season', 'anime-episodes', 'anime-upcoming'].includes(id);

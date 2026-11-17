@@ -45,6 +45,8 @@ function fillProfile(profile) {
   currentProfile=profile; favorites.clear(); profile.favorites.forEach(id=>favorites.add(id));watched.clear();profile.watched.forEach(id=>watched.add(id));
   for(const input of $('genres').querySelectorAll('input')) input.checked=profile.genres.includes(input.value);
   for(const input of $('platforms').querySelectorAll('input')) input.checked=profile.platforms.includes(input.value);
+  for(const input of $('languages').querySelectorAll('input')) input.checked=profile.preferredLanguages.includes(input.value);
+  for(const input of $('home-extras').querySelectorAll('input')) input.checked=profile.homeExtras.includes(input.value);
   for(const input of $('origins').querySelectorAll('input')) input.checked=profile.preferredOrigins.includes(input.value);
   $('sync-library').checked=profile.syncLibrary;$('sync-playback').checked=profile.syncPlayback;
   $('activity-status').textContent='Đã xem: '+profile.watched.length+' tác phẩm · Đang xem: '+(profile.started || []).length+' series · Đã lưu: '+(profile.saved || []).length+'. Sự kiện thư viện gần nhất: '+(profile.lastLibraryEventAt ? new Date(profile.lastLibraryEventAt).toLocaleString('vi-VN') : 'chưa nhận từ client')+'.';
@@ -57,6 +59,28 @@ function showInstallation() {
   const edit=document.createElement('a');edit.href=location.origin+'/'+token+'/configure';edit.textContent='Mở lại trang quản lý profile';
   $('edit-link').replaceChildren(edit); $('installation').hidden=false; $('preview').hidden=false;
   $('invitation-section').hidden=true; $('save').textContent='Cập nhật sở thích';
+}
+function option(select, value, label) {
+  const item = document.createElement('option');item.value=value;item.textContent=label;select.append(item);
+}
+function refreshCatalogs() {
+  const select=$('catalog-choice'), previous=select.value, type=$('media-type').value;
+  select.replaceChildren();
+  for(const view of library.catalogViews.filter(view=>view.type===type)) option(select,view.id,view.id==='anime' && type==='movie' ? 'Anime điện ảnh' : view.name);
+  if([...select.options].some(item=>item.value===previous)) select.value=previous;
+  refreshFilters();
+}
+function refreshFilters(reset=false) {
+  const type=$('media-type').value, id=$('catalog-choice').value;
+  const view=library.catalogViews.find(view=>view.type===type && view.id===id);
+  const select=$('discover-genre'), previous=reset ? '' : select.value;
+  select.replaceChildren();
+  if(!view || view.home) option(select,'','Tất cả');
+  const platforms=currentProfile ? currentProfile.platforms : library.defaults.platforms;
+  const allowed=id==='trending' ? library.platforms.filter(platform=>platforms.includes(platform.id)).map(platform=>platform.name) : view?.options || [];
+  for(const value of allowed) option(select,value,value);
+  if([...select.options].some(item=>item.value===previous)) select.value=previous;
+  select.disabled=!allowed.length;
 }
 async function preview(more=false) {
   const version=++previewVersion;
@@ -94,21 +118,23 @@ async function preview(more=false) {
 $('preferences').addEventListener('submit',async event=>{
   event.preventDefault();$('save').disabled=true;
   try {
-    const body={genres:selected('genres'),favorites:[...favorites],region:$('region').value,platforms:selected('platforms'),preferredOrigins:selected('origins'),preferAnime:$('prefer-anime').checked,syncLibrary:$('sync-library').checked,syncPlayback:$('sync-playback').checked};
+    const body={genres:selected('genres'),favorites:[...favorites],region:$('region').value,platforms:selected('platforms'),preferredOrigins:selected('origins'),preferredLanguages:selected('languages'),homeExtras:selected('home-extras'),preferAnime:$('prefer-anime').checked,syncLibrary:$('sync-library').checked,syncPlayback:$('sync-playback').checked};
     if(!token) body.watched=[...watched];
     if(!body.platforms.length) throw new Error('Chọn ít nhất một nền tảng.');
     if(!token) body.registrationKey=$('invitation').value;
-    const originsChanged = currentProfile && [...body.preferredOrigins].sort().join(',') !== [...currentProfile.preferredOrigins].sort().join(',');
+    const tastesChanged = currentProfile && (body.preferredOrigins.join(',') !== currentProfile.preferredOrigins.join(',')
+      || body.preferredLanguages.join(',') !== currentProfile.preferredLanguages.join(','));
     const marketChanged = currentProfile && (body.region !== currentProfile.region || [...body.platforms].sort().join(',') !== [...currentProfile.platforms].sort().join(','));
     const data=await api(token ? '/api/profile' : '/api/profiles',{method:token ? 'PUT':'POST',body:JSON.stringify(body)});
     if(data.token) { token=data.token;sessionStorage.setItem('pf-token',token); }
     fillProfile(data.profile);
     showInstallation();
-    if(originsChanged || marketChanged) {
-      $('catalog-choice').value = originsChanged ? 'recommended' : 'trending';
+    if(tastesChanged || marketChanged) {
+      $('catalog-choice').value = tastesChanged ? 'recommended' : 'trending';
       $('discover-search').value = '';
       $('discover-genre').value = '';
     }
+    refreshFilters();
     await preview();
   } catch(error) { status(error.message); }
   finally { $('save').disabled=false; }
@@ -117,8 +143,8 @@ $('copy').addEventListener('click',async()=>{
   try { await navigator.clipboard.writeText($('manifest-url').value);status('Đã sao chép manifest URL.'); }
   catch { $('manifest-url').select();status('Sao chép URL trong ô bên trên.'); }
 });
-$('media-type').addEventListener('change',()=>preview());
-$('catalog-choice').addEventListener('change',()=>{$('discover-search').value='';preview();});
+$('media-type').addEventListener('change',()=>{refreshCatalogs();preview();});
+$('catalog-choice').addEventListener('change',()=>{$('discover-search').value='';refreshFilters(true);preview();});
 $('discover-genre').addEventListener('change',()=>preview());
 $('run-search').addEventListener('click',()=>preview());
 $('discover-search').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();preview();}});
@@ -152,8 +178,9 @@ $('favorites').addEventListener('change',async event=>{
     $('region').value=library.defaults.region;
     choices('platforms',library.platforms,library.defaults.platforms);choices('origins',library.origins.map(id=>({id,name:origins[id]})),library.defaults.preferredOrigins);
     choices('genres',library.genres.map(id=>({id,name:id})));
-    for(const genre of library.genres){const option=document.createElement('option');option.value=genre;option.textContent=genre;$('discover-genre').append(option);}
-    for(const catalog of library.catalogs) { const option=document.createElement('option');option.value=catalog.id;option.textContent=catalog.name;$('catalog-choice').append(option); }
+    choices('languages',library.languages,library.defaults.preferredLanguages);
+    choices('home-extras',[{id:'regional-movies',name:'Phim lẻ theo ngôn ngữ'},{id:'because',name:'Vì bạn đã xem'}],library.defaults.homeExtras);
+    refreshCatalogs();
     renderFavorites(library.titles);$('invitation-section').hidden=!library.invitationRequired;
     if(token) {
       let data;
@@ -161,7 +188,7 @@ $('favorites').addEventListener('change',async event=>{
       catch(error) { if(candidate.length===2) throw error;token=null;sessionStorage.removeItem('pf-token'); }
       if(data) {
         const saved=await api('/api/favorites');for(const title of saved.titles) titles.set(title.id,title);
-        fillProfile(data.profile);showInstallation();await preview();
+        fillProfile(data.profile);showInstallation();refreshFilters();await preview();
       }
     }
     if(!token) status('Chọn thể loại và phim yêu thích để bắt đầu.');$('save').disabled=false;

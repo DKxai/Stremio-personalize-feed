@@ -10,6 +10,7 @@ import { loadConfig } from '../apps/api/config.js';
 import { LiveLibrary } from '../packages/metadata/live-library.js';
 import { TmdbClient } from '../packages/metadata/tmdb.js';
 import { mockTmdb } from './helpers/tmdb.js';
+import { vietnamDate } from '../packages/recommendation/airing.js';
 import { inReleaseWindow } from '../packages/recommendation/dates.js';
 import { CATALOGS } from '../packages/recommendation/catalogs.js';
 
@@ -42,7 +43,7 @@ test('health, onboarding assets, unconfigured manifest and CORS work', async () 
   assert.match((await app.inject('/assets/configure.js')).body, /api\/profiles/);
   const response = await app.inject('/manifest.json');
   const manifest = response.json();
-  assert.equal(manifest.catalogs.length, 34);
+  assert.equal(manifest.catalogs.length, 22);
   assert.equal(manifest.behaviorHints.configurationRequired, true);
   assert.equal(response.headers['access-control-allow-origin'], '*');
   assert(!manifest.resources.includes('stream'));
@@ -66,7 +67,10 @@ test('create two isolated profiles and store only a token hash', async () => {
 
 test('every catalog serves valid IMDb previews for both types', async () => {
   for (const type of ['movie', 'series']) for (const { id } of CATALOGS) {
-    const response = await app.inject(catalog(id, type));
+    const filters: Record<string, string> = { languages: 'Tiếng Anh', origins: 'Nhật Bản', library: 'Đã xem' };
+    if (id === 'languages' && type === 'series') continue;
+    const filter = filters[id] ? '/' + new URLSearchParams({ genre: filters[id] }) : '';
+    const response = await app.inject(catalog(id, type, filter));
     assert.equal(response.statusCode, 200, response.body);
     const { metas } = response.json();
     if (['recommended', 'because', 'genres', 'gems', 'top'].includes(id)) assert(metas.length > 0, type + ':' + id);
@@ -160,14 +164,35 @@ test('live TMDB catalog flow accepts searched IMDb IDs, persists feed preference
       const response=await live.inject('/'+liveToken+'/catalog/'+type+'/pf-'+id+'.json');assert.equal(response.statusCode,200,response.body);
       const metas=response.json().metas;assert(metas.length>0,type+id);
       assert(!metas.some((m:{id:string})=>m.id==='tt1000001'));
-      if(id==='new30') assert(metas.every((m:{description:string})=>inReleaseWindow(m.description.slice(0,10),0,29,clock)));
-      if(id==='anime-new') assert(metas.every((m:{description:string})=>inReleaseWindow(m.description.slice(0,10),0,89,clock)));
+      if (id === 'trending') {
+        const platforms = metas.map((m: { description: string }) => m.description.includes('Có trên: Netflix') ? 'Netflix' : 'Disney Plus');
+        const firstDisney = platforms.indexOf('Disney Plus');
+        assert(firstDisney > 0);
+        assert(!platforms.slice(firstDisney).includes('Netflix'));
+      }
+      if(id==='new30') assert(metas.every((m:{description:string})=>inReleaseWindow(m.description.slice(0,10),0,29,vietnamDate(clock))));
+      if(id==='anime-new') assert(metas.every((m:{description:string})=>inReleaseWindow(m.description.slice(0,10),0,89,vietnamDate(clock))));
     }
+    const seriesView = (id: string, genre: string) => '/' + liveToken + '/catalog/series/pf-' + id + '/' + new URLSearchParams({ genre }) + '.json';
+    const episodes = (await live.inject('/' + liveToken + '/catalog/series/pf-anime-episodes.json')).json().metas;
+    assert.match(episodes.find((meta: { id: string }) => meta.id === 'tt1000031')?.description ?? '', /Tập 3, mùa 2/);
+    const next = (await live.inject(seriesView('anime', 'Sắp phát sóng'))).json().metas;
+    assert.match(next.find((meta: { id: string }) => meta.id === 'tt1000031')?.description ?? '', /Dự kiến phát sóng/);
+    const recentSeason = (await live.inject(seriesView('recent', 'Trong 30 ngày'))).json().metas;
+    assert.match(recentSeason.find((meta: { id: string }) => meta.id === 'tt1000031')?.description ?? '', /Mùa mới/);
+    const disneyOnly = (await live.inject(seriesView('trending', 'Disney+'))).json().metas;
+    assert(disneyOnly.length > 0 && disneyOnly.every((meta: { description: string }) => meta.description.includes('Có trên: Disney Plus')));
+    assert.equal((await live.inject(seriesView('trending', 'Prime Video'))).statusCode, 400);
+    const english = (await live.inject('/' + liveToken + '/catalog/movie/pf-languages/' + new URLSearchParams({ genre: 'Tiếng Anh' }) + '.json')).json().metas;
+    assert.deepEqual(english.map((meta: { id: string }) => meta.id), ['tt1000005']);
     const first=(await live.inject('/'+liveToken+'/catalog/movie/pf-anime.json')).json().metas[0].id;
     assert.equal((await live.inject({method:'POST',url:'/api/interactions',headers:header,payload:{mediaId:first,kind:'dislike'}})).statusCode,200);
     assert(!(await live.inject('/'+liveToken+'/catalog/movie/pf-anime.json')).json().metas.some((m:{id:string})=>m.id===first));
-    const changed=await live.inject({method:'PUT',url:'/api/profile',headers:header,payload:{genres:['Animation'],favorites:['tt1000001'],region:'VN'}});
+    const changed=await live.inject({method:'PUT',url:'/api/profile',headers:header,payload:{genres:['Animation'],favorites:['tt1000001'],region:'VN',preferredLanguages:['en'],homeExtras:['regional-movies']}});
     assert.equal(changed.statusCode,200,changed.body);assert.deepEqual(changed.json().profile.platforms,['netflix','disney']);
+    assert.deepEqual(changed.json().profile.preferredLanguages,['en']);
+    const installed = (await live.inject('/' + liveToken + '/manifest.json')).json();
+    assert(installed.catalogs.some((row: { id: string; type: string }) => row.id === 'pf-lang-en' && row.type === 'movie'));
     assert.deepEqual((await live.inject('/'+liveToken+'/catalog/movie/pf-trending.json')).json().metas,[]);
     assert.equal((await live.inject('/api/search?q=x')).statusCode,400);
     assert.equal((await live.inject('/api/search?q=anime&region=XX')).statusCode,400);
