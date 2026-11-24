@@ -17,6 +17,24 @@ interface ProfileSignals {
 }
 
 const DISCOVERY_PAGE_SIZE = 30;
+const rotatingHomeRows = new Set<CatalogId>(['recommended', 'because', 'gems', 'recent', 'anime', 'anime-season', 'lang-ko', 'lang-en', 'lang-ja', 'lang-zh']);
+
+// Keep a strong match and surface a deeper suggestion within the first three posters.
+// Only permute a fixed prefix so a refresh cannot move titles across page boundaries.
+function homePreview(titles: Title[], count: number, turn: number, now: number): Title[] {
+  const prefix = titles.slice(0, count);
+  if (prefix.length < 2) return prefix;
+  const split = Math.min(5, Math.ceil(prefix.length / 2));
+  const near = prefix[turn % split]!;
+  const deeper = prefix.slice(split);
+  const today = vietnamDate(new Date(now));
+  const fresh = deeper.filter(t => inReleaseWindow(latestRelease(t, today), 0, 89, today));
+  const pick = fresh.length && turn % 2 === 0
+    ? fresh[Math.floor(turn / 2) % fresh.length]!
+    : deeper[turn % deeper.length]!;
+  const lead = turn % 2 === 0 ? [near, pick] : [pick, near];
+  return [...lead, ...prefix.filter(t => t !== near && t !== pick)];
+}
 
 interface DiscoveryList {
   titles: Title[];
@@ -25,6 +43,7 @@ interface DiscoveryList {
   finished: boolean;
   revision: number;
   loading?: Promise<void>;
+  preview?: { count: number; turn: number; refreshedAt: number };
 }
 
 export class FeedService {
@@ -34,7 +53,7 @@ export class FeedService {
   private readonly signals = new TtlCache<ProfileSignals>(100, 300_000);
   private readonly loadingSignals = new Map<string, Promise<ProfileSignals>>();
 
-  constructor(readonly library: LibrarySource, private readonly community?: CommunitySignals) {}
+  constructor(readonly library: LibrarySource, private readonly community?: CommunitySignals, private readonly now: () => number = Date.now) {}
   async recommend(profile: Profile, type: MediaType, catalog: CatalogId, query: CatalogQuery = { skip: 0 }, sourceProfile = profile): Promise<Title[]> {
     if (catalog === 'because' && !profile.favorites.length && !profile.likes.length && !profile.watched.length && !profile.started?.length && !profile.saved?.length) return [];
     const [batch, signals] = await Promise.all([
@@ -85,7 +104,7 @@ export class FeedService {
     return task;
   }
 
-  private async paginate(key: string, skip: number, size: number, load: (state: DiscoveryList) => Promise<DiscoverBatch>) {
+  private async paginate(key: string, skip: number, size: number, load: (state: DiscoveryList) => Promise<DiscoverBatch>, home = false, rotate = false) {
     let list = this.discovery.get(key);
     if (!list) {
       list = { titles: [], ids: new Set(), nextPage: 0, finished: false, revision: ++this.revision };
@@ -105,13 +124,27 @@ export class FeedService {
     // Bound upstream work for stale offsets and exceptionally sparse filters.
     // Progress survives retries, including a failure while fetching a later batch.
     let budget = 16;
-    while (!state.finished && state.titles.length < skip + size) {
+    const required = home && skip === 0 ? 1 : skip + size;
+    while (!state.finished && state.titles.length < required) {
       if (--budget < 0) {
         if (state.titles.length > skip) break;
         throw new UpstreamUnavailable('Đang chuẩn bị thêm kết quả. Hãy thử lại.');
       }
       state.loading ??= extend().finally(() => { state.loading = undefined; });
       await state.loading;
+    }
+    if (rotate && skip < 18 && state.titles.length) {
+      const now = this.now();
+      state.preview ??= { count: Math.min(18, state.titles.length), turn: Math.floor(now / 60_000) + Math.floor(now / 86_400_000), refreshedAt: now };
+      const preview = state.preview;
+      if (skip === 0 && now - preview.refreshedAt >= 60_000) {
+        preview.turn++;
+        preview.refreshedAt = now;
+      }
+      if (skip < preview.count) {
+        const prefix = homePreview(state.titles, preview.count, preview.turn, preview.refreshedAt);
+        return [...prefix.slice(skip), ...state.titles.slice(preview.count, skip + size)];
+      }
     }
     return state.titles.slice(skip, skip + size);
   }
@@ -163,6 +196,6 @@ export class FeedService {
         type, id, candidates, signals.seeds, 'discover/' + state.revision + '/' + page,
         signals.community, state.titles.slice(-4));
       return { titles, more: source.more };
-    });
+    }, !query.genre, !query.genre && rotatingHomeRows.has(id));
   }
 }

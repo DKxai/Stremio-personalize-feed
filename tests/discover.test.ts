@@ -143,3 +143,32 @@ test('filtered language and anime rows fetch deeper matching TMDB pages', async 
     if (id === 'anime') assert(requests.every(u => u.searchParams.get('with_genres') === '16'));
   }
 });
+
+test('Home surfaces deeper and fresh picks on later visits, without refetching or shifting pagination', async () => {
+  let now = Date.UTC(2026, 10, 24);
+  let calls = 0;
+  const rows = Array.from({ length: 40 }, (_, i) => ({
+    type: 'movie' as const, id: 'tt' + (1000000 + i), name: 'Film ' + i, year: 2025,
+    genres: [], cast: [], directors: [], keywords: [], quality: 0.9 - i / 200, popularity: 0.5,
+    releaseDate: i === 7 ? '2026-11-01' : '2025-01-01',
+  }));
+  const library = {
+    mode: 'tmdb' as const,
+    async candidates() { calls++; return { titles: rows.slice(0, 12), revision: 'one', source: 'tmdb' as const }; },
+    async discoverPage() { calls++; return { titles: rows.slice(12), more: false }; },
+    async search() { return []; }, async resolve() { return undefined; },
+  };
+  const service = new FeedService(library, undefined, () => now);
+  const get = (skip: number) => service.page(profile, 'movie', 'recommended', { skip });
+  const [first, retry] = await Promise.all([get(0), get(0)]);
+  assert.equal(first.length, 12);
+  assert.deepEqual(retry, first);
+  now += 61_000;
+  const next = await get(0);
+  assert.notDeepEqual(next.slice(0, 3).map(t => t.id), first.slice(0, 3).map(t => t.id));
+  assert.deepEqual(new Set(next.map(t => t.id)), new Set(first.map(t => t.id)));
+  assert.equal(calls, 1);
+  assert.deepEqual((await get(5)).slice(0, 7), next.slice(5));
+  const rest = await get(next.length);
+  assert.equal(new Set([...next, ...rest].map(t => t.id)).size, rows.length);
+});

@@ -10,6 +10,7 @@ export interface TmdbCredentials { token?: string; apiKey?: string }
 /** Four requests at a time, including across concurrent Stremio catalog calls. */
 export class TmdbClient {
   private active = 0;
+  private retryAt = 0;
   private readonly queue: (() => void)[] = [];
   private readonly memory = new TtlCache<unknown>(180, 1_800_000);
   private readonly pending = new Map<string, Promise<any>>();
@@ -32,14 +33,22 @@ export class TmdbClient {
         this.memory.set(key, value, Math.min(ttl, 1_800_000));
         return value;
       }
+      if (Date.now() < this.retryAt) throw new UpstreamUnavailable();
       if (this.active >= 4) await new Promise<void>(resolve => this.queue.push(resolve));
       else this.active++;
       try {
+        if (Date.now() < this.retryAt) throw new UpstreamUnavailable();
         if (this.credentials.apiKey && !this.credentials.token) query.set('api_key', this.credentials.apiKey);
         const response = await this.fetcher(`https://api.themoviedb.org/3/${path}?${query}`, {
           headers: { accept: 'application/json', ...(this.credentials.token ? { Authorization: `Bearer ${this.credentials.token}` } : {}) },
           signal: AbortSignal.timeout(10_000),
         });
+        if (response.status === 429) {
+          const retry = response.headers.get('retry-after')?.trim() ?? '';
+          const delay = /^\d+$/.test(retry) ? Number(retry) * 1000 : Date.parse(retry) - Date.now();
+          this.retryAt = Math.max(this.retryAt, Date.now() + (Number.isFinite(delay) && delay > 0 ? delay : 30_000));
+          throw new UpstreamUnavailable();
+        }
         if (response.status === 404) return undefined;
         if (!response.ok) throw new UpstreamUnavailable(response.status === 401 ? 'TMDB từ chối API token. Kiểm tra cấu hình máy chủ.' : undefined);
         const data = await response.json();
