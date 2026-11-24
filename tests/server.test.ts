@@ -207,3 +207,22 @@ test('missing TMDB credentials are visible and never silently enable fixture rec
     const response=await unconfigured.inject('/'+token+'/catalog/movie/pf-recommended.json');assert.equal(response.statusCode,503);
   } finally { await unconfigured.close(); }
 });
+
+test('repeated parallel Home loads behind one IP have their own catalog budget', async () => {
+  const isolated = await buildServer(db, config);
+  try {
+    const manifest = (await isolated.inject('/' + token + '/manifest.json')).json();
+    const home = manifest.catalogs.filter((c: { extra: { isRequired?: boolean }[] }) => c.extra.every(e => !e.isRequired));
+    let requests = 0;
+    while (requests < 165) {
+      const responses = await Promise.all(home.map((c: { type: string; id: string }) =>
+        isolated.inject('/' + token + '/catalog/' + c.type + '/' + c.id + '.json')));
+      assert(responses.every(r => r.statusCode === 200 && Array.isArray(r.json().metas)));
+      requests += responses.length;
+    }
+    const other = await isolated.inject('/' + otherToken + '/catalog/movie/pf-recommended.json');
+    assert.equal(other.statusCode, 200);
+    assert(Number(other.headers['x-ratelimit-remaining']) >= 358);
+    assert.equal((await isolated.inject('/health')).statusCode, 200);
+  } finally { await isolated.close(); }
+});

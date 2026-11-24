@@ -8,7 +8,7 @@ Bản **0.4** bổ sung Đã xem / Thư viện riêng, callback Stremio library/
 
 - **Hoạt hình thế giới** có mục Movie và Series, gồm hoạt hình ngoài anime từ các quốc gia, kể cả donghua. Chọn “Tất cả” hoặc lọc thêm theo thể loại. Anime Nhật vẫn có các mục riêng.
 - **TV Show** dành cho series thực tế và talk show, gồm các chương trình thi đấu được TMDB phân loại Reality. Chọn “Tất cả”, Anh (GB), Nhật, Hàn hoặc Trung Quốc đại lục. Quốc gia sản xuất độc lập với thị trường xem trong profile.
-- **Cuộn tiếp** áp dụng cho mọi mục Discover và mọi lựa chọn bộ lọc trong manifest. Mỗi lượt trả tối đa 30 kết quả, riêng thư viện trả tối đa 100. Stremio gửi `skip` bằng số mục đã nhận. Server chấm ứng viên mới theo cùng profile, nối vào cuối, loại trùng IMDb ID và giữ thứ tự trong cache phiên 30 phút (tối đa 20 danh sách). Cuộn không tạo tương tác. Kết quả tìm kiếm giữ thứ tự nguồn, thư viện giữ thứ tự danh sách, còn các catalog theo lịch và xu hướng dùng quy tắc xếp hạng riêng cho mỗi lô. Khi hết nguồn, lượt cuộn tiếp trả danh sách rỗng.
+- **Cuộn tiếp** áp dụng cho mọi mục Discover và mọi lựa chọn bộ lọc trong manifest. Mỗi lượt trả tối đa 30 kết quả, riêng thư viện trả tối đa 100. Stremio gửi `skip` bằng số mục đã nhận. Server chấm ứng viên mới theo cùng profile, nối vào cuối, loại trùng IMDb ID và giữ thứ tự trong cache phiên 30 phút (tối đa 20 danh sách). Home trả ngay lô đầu có phim phù hợp. Khi Stremio yêu cầu lại hàng sau ít nhất một phút, hàng cá nhân, ngôn ngữ, anime và phim mới luân phiên đưa phim từ tối đa 18 vị trí đầu lên trước. Chỉ đảo bên trong phần đã trả. Tìm kiếm, xu hướng nền tảng và lịch tập giữ thứ tự riêng. Cuộn không tạo tương tác. Kết quả tìm kiếm giữ thứ tự nguồn, thư viện giữ thứ tự danh sách, còn các catalog theo lịch và xu hướng dùng quy tắc xếp hạng riêng cho mỗi lô. Khi hết nguồn, lượt cuộn tiếp trả danh sách rỗng.
 - **TheTVDB v4** là nguồn tùy chọn. Cấu hình `TVDB_API_KEY` trên server và `TVDB_PIN` nếu loại key yêu cầu. Show có TVDB ID được đối chiếu trực tiếp, hoặc tra IMDb ID để tìm đúng series. Genre và tag bổ sung tham gia so khớp từ khóa giữa show và lịch sử profile. Với series thiếu IMDb ID, có thể khôi phục từ TVDB ID. Khi TVDB gặp lỗi, feed dùng TMDB. Xem [điều kiện API TheTVDB](https://thetvdb.com/api-information).
 - Sau khi deploy, cài lại add-on bằng manifest của **cùng profile** để Stremio hiển thị catalog mới.
 
@@ -142,7 +142,7 @@ Like và Dislike loại trừ nhau, nhưng độc lập với watched/saved. `cl
 
 Metadata chi tiết ưu tiên Cinemeta, giữ ID tập phim thật. Khi upstream lỗi, movie có fallback cơ bản; series trả `meta:null` thay vì tạo tập giả. Hãy giữ Cinemeta cài trong Stremio. Poster TMDB có fallback Metahub. Attribution TMDB / JustWatch xuất hiện trên trang cấu hình và dữ liệu nền tảng trong preview.
 
-Ứng dụng không log URL/body vì đường dẫn chứa token. Proxy/hosting cũng cần ẩn URL chứa token khỏi access log. HTTP profile/catalog dùng `private, no-store`; cache ranking nằm bên trong app. Rate limit chạy trong RAM theo IP kết nối; không mặc định tin `X-Forwarded-For`.
+Ứng dụng không log URL/body vì đường dẫn chứa token. Proxy/hosting cũng cần ẩn URL chứa token khỏi access log. HTTP profile/catalog dùng `private, no-store`; cache ranking nằm bên trong app. Catalog có hạn mức riêng 360 yêu cầu/phút trên mỗi dạng đường dẫn, theo profile đã xác thực gần đây hoặc IP khi chưa nhận diện. Các route còn lại giới hạn theo IP; không mặc định tin `X-Forwarded-For`.
 
 ## Backup / restore
 

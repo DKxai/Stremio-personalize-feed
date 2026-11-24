@@ -24,6 +24,11 @@ export class ProfileService {
     return { token, profile: (await this.find(token))! };
   }
 
+  // Used only to group rate limits. Every catalog still authenticates in find().
+  cachedProfileId(token: string): string | undefined {
+    return validToken(token) ? this.cache.get(tokenHash(token))?.id : undefined;
+  }
+
   async find(token: string): Promise<Profile | null> {
     if (!validToken(token)) return null;
     const hash = tokenHash(token);
